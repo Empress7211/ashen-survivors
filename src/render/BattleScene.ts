@@ -4,14 +4,21 @@ import { EntityRenderer } from './EntityRenderer';
 import { IndicatorRenderer } from './IndicatorRenderer';
 import {
   TEX_VIGNETTE,
+  clampAlpha,
   createProceduralTextures,
+  interpolateValue,
   queueCorePreload,
   queueLazyPassiveIcons,
 } from './RenderAssets';
 import { FloatingTextPool } from './SpritePool';
 import { VfxRenderer } from './VfxRenderer';
 import { WorldRenderer } from './WorldRenderer';
-import type { BattleRendererDisplayOptions } from './types';
+import type {
+  BattleRendererDisplayOptions,
+  EntityRenderInterp,
+  InterpPosSnapshot,
+  VfxRenderInterp,
+} from './types';
 
 interface LocalPlayerDmgText {
   uid: number;
@@ -53,6 +60,17 @@ export class BattleScene extends Phaser.Scene {
   private prevPlayerHp = -1;
   private nextLocalTextUid = -1;
   private readonly localDmgTexts: LocalPlayerDmgText[] = [];
+
+  private lastSnapTick = -1;
+  private prevPlayerX = 0;
+  private prevPlayerY = 0;
+  private currPlayerX = 0;
+  private currPlayerY = 0;
+  private readonly enemySnaps = new Map<number, InterpPosSnapshot>();
+  private readonly projSnaps = new Map<number, InterpPosSnapshot>();
+  private readonly snapPool: InterpPosSnapshot[] = [];
+  private readonly entityInterp: EntityRenderInterp = {};
+  private readonly vfxInterp: VfxRenderInterp = {};
 
   constructor(
     initialStageId: StageId,
@@ -159,8 +177,14 @@ export class BattleScene extends Phaser.Scene {
     this.indicatorRenderer?.resize(w, h, zoom);
   }
 
-  applyFrameState(state: RenderFrameState): void {
+  applyFrameState(state: RenderFrameState, alpha = 1): void {
     if (!this.sceneReady || this.destroyed) return;
+
+    const a = clampAlpha(alpha);
+    this.updateInterpolationSnapshots(state);
+
+    const playerRenderX = interpolateValue(this.prevPlayerX, this.currPlayerX, a);
+    const playerRenderY = interpolateValue(this.prevPlayerY, this.currPlayerY, a);
 
     const cam = this.cameras.main;
     const visW = this.viewW / this.camZoom;
@@ -207,9 +231,19 @@ export class BattleScene extends Phaser.Scene {
       shakeY = Math.cos(state.tick * 3.37) * amp * 0.85;
     }
 
-    const camCenterX = state.player.x + shakeX;
-    const camCenterY = state.player.y + shakeY;
+    const camCenterX = playerRenderX + shakeX;
+    const camCenterY = playerRenderY + shakeY;
     cam.setScroll(camCenterX - this.viewW * 0.5, camCenterY - this.viewH * 0.5);
+
+    this.entityInterp.alpha = a;
+    this.entityInterp.playerX = playerRenderX;
+    this.entityInterp.playerY = playerRenderY;
+    this.entityInterp.enemySnaps = this.enemySnaps;
+
+    this.vfxInterp.alpha = a;
+    this.vfxInterp.playerX = playerRenderX;
+    this.vfxInterp.playerY = playerRenderY;
+    this.vfxInterp.projSnaps = this.projSnaps;
 
     // Render ordered layers
     this.worldRenderer?.update(
@@ -230,6 +264,7 @@ export class BattleScene extends Phaser.Scene {
       visW,
       visH,
       this.highQuality,
+      this.entityInterp,
     );
 
     this.vfxRenderer?.render(
@@ -239,6 +274,7 @@ export class BattleScene extends Phaser.Scene {
       visW,
       visH,
       this.highQuality,
+      this.vfxInterp,
     );
 
     this.indicatorRenderer?.render(
@@ -249,9 +285,100 @@ export class BattleScene extends Phaser.Scene {
       this.viewW,
       this.viewH,
       this.camZoom,
+      this.entityInterp,
     );
 
     this.renderFloatingTexts(state);
+  }
+
+  private updateInterpolationSnapshots(state: RenderFrameState): void {
+    const tick = state.tick;
+    if (
+      this.lastSnapTick < 0 ||
+      tick < this.lastSnapTick ||
+      tick - this.lastSnapTick > 4
+    ) {
+      this.prevPlayerX = state.player.x;
+      this.prevPlayerY = state.player.y;
+      this.currPlayerX = state.player.x;
+      this.currPlayerY = state.player.y;
+      this.initSnapshots(this.enemySnaps, state.enemies, tick);
+      this.initSnapshots(this.projSnaps, state.projectiles, tick);
+      this.lastSnapTick = tick;
+      return;
+    }
+
+    if (tick > this.lastSnapTick) {
+      this.prevPlayerX = this.currPlayerX;
+      this.prevPlayerY = this.currPlayerY;
+      this.currPlayerX = state.player.x;
+      this.currPlayerY = state.player.y;
+      this.advanceSnapshots(this.enemySnaps, state.enemies, tick);
+      this.advanceSnapshots(this.projSnaps, state.projectiles, tick);
+      this.lastSnapTick = tick;
+    }
+  }
+
+  private acquireSnapshot(x: number, y: number, tick: number): InterpPosSnapshot {
+    const snap = this.snapPool.pop();
+    if (snap) {
+      snap.prevX = x;
+      snap.prevY = y;
+      snap.currX = x;
+      snap.currY = y;
+      snap.seenTick = tick;
+      return snap;
+    }
+    return { prevX: x, prevY: y, currX: x, currY: y, seenTick: tick };
+  }
+
+  private releaseAllSnapshots(map: Map<number, InterpPosSnapshot>): void {
+    for (const snap of map.values()) {
+      if (this.snapPool.length < 2400) {
+        this.snapPool.push(snap);
+      }
+    }
+    map.clear();
+  }
+
+  private initSnapshots(
+    map: Map<number, InterpPosSnapshot>,
+    items: readonly { readonly uid: number; readonly x: number; readonly y: number }[],
+    tick: number,
+  ): void {
+    this.releaseAllSnapshots(map);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      map.set(item.uid, this.acquireSnapshot(item.x, item.y, tick));
+    }
+  }
+
+  private advanceSnapshots(
+    map: Map<number, InterpPosSnapshot>,
+    items: readonly { readonly uid: number; readonly x: number; readonly y: number }[],
+    tick: number,
+  ): void {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      const snap = map.get(item.uid);
+      if (snap) {
+        snap.prevX = snap.currX;
+        snap.prevY = snap.currY;
+        snap.currX = item.x;
+        snap.currY = item.y;
+        snap.seenTick = tick;
+      } else {
+        map.set(item.uid, this.acquireSnapshot(item.x, item.y, tick));
+      }
+    }
+    for (const [uid, snap] of map) {
+      if (snap.seenTick < tick) {
+        map.delete(uid);
+        if (this.snapPool.length < 2400) {
+          this.snapPool.push(snap);
+        }
+      }
+    }
   }
 
   private advanceLocalDamageTexts(dt: number): void {
@@ -336,5 +463,9 @@ export class BattleScene extends Phaser.Scene {
     this.vignette = null;
 
     this.localDmgTexts.length = 0;
+    this.releaseAllSnapshots(this.enemySnaps);
+    this.releaseAllSnapshots(this.projSnaps);
+    this.snapPool.length = 0;
+    this.lastSnapTick = -1;
   }
 }

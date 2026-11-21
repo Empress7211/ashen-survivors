@@ -5,8 +5,13 @@ import {
   ATLAS_VFX,
   ATLAS_WORLD,
   TEX_EDGE_ARROW,
+  clampAlpha,
+  hasAtlasPassiveFrame,
+  interpolateValue,
+  passiveAtlasFrame,
   passiveIconKey,
 } from './RenderAssets';
+import type { EntityRenderInterp } from './types';
 
 interface IndicatorTarget {
   priority: number;
@@ -69,20 +74,26 @@ export class IndicatorRenderer {
     viewW: number,
     viewH: number,
     camZoom: number,
+    interp?: EntityRenderInterp,
   ): void {
     const targets = this.targetsScratch;
     targets.length = 0;
 
     const halfW = viewW * 0.5;
     const halfH = viewH * 0.5;
+    const alpha = interp?.alpha !== undefined ? clampAlpha(interp.alpha) : 1;
+    const enemySnaps = alpha < 1 ? interp?.enemySnaps : undefined;
 
     // 1. Offscreen bosses / reapers
     const enemies = state.enemies;
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i]!;
       if (!e.isBoss && !e.isReaper) continue;
-      const sx = (e.x - camCenterX) * camZoom;
-      const sy = (e.y - camCenterY) * camZoom;
+      const snap = enemySnaps?.get(e.uid);
+      const ex = snap ? interpolateValue(snap.prevX, snap.currX, alpha) : e.x;
+      const ey = snap ? interpolateValue(snap.prevY, snap.currY, alpha) : e.y;
+      const sx = (ex - camCenterX) * camZoom;
+      const sy = (ey - camCenterY) * camZoom;
       if (Math.abs(sx) <= halfW - 14 && Math.abs(sy) <= halfH - 14) continue;
       targets.push({
         priority: e.isReaper ? 0 : 1,
@@ -127,16 +138,29 @@ export class IndicatorRenderer {
           targetSize: 24,
         });
       } else {
-        const key = passiveIconKey(p.itemId as PassiveId);
-        if (!scene.textures.exists(key)) continue;
-        targets.push({
-          priority: 4,
-          x: sx,
-          y: sy,
-          color: 0xffd447,
-          texture: key,
-          targetSize: 23,
-        });
+        const pid = p.itemId as PassiveId;
+        if (hasAtlasPassiveFrame(scene.textures, pid)) {
+          targets.push({
+            priority: 4,
+            x: sx,
+            y: sy,
+            color: 0xffd447,
+            texture: ATLAS_WORLD,
+            frame: passiveAtlasFrame(pid),
+            targetSize: 23,
+          });
+        } else {
+          const key = passiveIconKey(pid);
+          if (!scene.textures.exists(key)) continue;
+          targets.push({
+            priority: 4,
+            x: sx,
+            y: sy,
+            color: 0xffd447,
+            texture: key,
+            targetSize: 23,
+          });
+        }
       }
     }
 

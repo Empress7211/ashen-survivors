@@ -31,7 +31,37 @@ export function passiveIconKey(passiveId: PassiveId): string {
 }
 
 export function passiveIconPath(passiveId: PassiveId): string {
-  return `/assets/icons/${passiveId}.png`;
+  return `/assets/icons/${passiveId}.webp`;
+}
+
+export function passiveAtlasFrame(passiveId: PassiveId): string {
+  return `passive_${passiveId}`;
+}
+
+export function hasAtlasPassiveFrame(
+  textures: Phaser.Textures.TextureManager,
+  passiveId: PassiveId,
+): boolean {
+  return (
+    textures.exists(ATLAS_WORLD) &&
+    textures.get(ATLAS_WORLD).has(passiveAtlasFrame(passiveId))
+  );
+}
+
+/**
+ * Clamps a sub-tick interpolation factor into [0, 1], defaulting non-finite values to 1.
+ */
+export function clampAlpha(alpha: number): number {
+  return Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 1;
+}
+
+/**
+ * Evaluates linear sub-tick interpolation while staying bit-identical at alpha=0 and alpha=1.
+ */
+export function interpolateValue(prev: number, curr: number, alpha: number): number {
+  if (alpha === 1) return curr;
+  if (alpha === 0) return prev;
+  return prev + (curr - prev) * alpha;
 }
 
 /**
@@ -98,6 +128,9 @@ export function queueLazyPassiveIcons(
   let queued = 0;
   for (let i = 0; i < PASSIVE_IDS.length; i++) {
     const pid = PASSIVE_IDS[i]!;
+    if (hasAtlasPassiveFrame(textures, pid)) {
+      continue;
+    }
     const key = passiveIconKey(pid);
     if (!textures.exists(key)) {
       loader.image(key, passiveIconPath(pid));

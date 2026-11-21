@@ -5,8 +5,11 @@ import {
   ATLAS_VFX,
   TEX_GLOW_DISC,
   VFX_NATIVE_ANGLE,
+  clampAlpha,
+  interpolateValue,
 } from './RenderAssets';
 import { ImagePool } from './SpritePool';
+import type { VfxRenderInterp } from './types';
 
 function fastHash(n: number): number {
   let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
@@ -92,6 +95,7 @@ export class VfxRenderer {
     visW: number,
     visH: number,
     highQuality: boolean,
+    interp?: VfxRenderInterp,
   ): void {
     this.floorGraphics.clear();
     this.topGraphics.clear();
@@ -105,24 +109,33 @@ export class VfxRenderer {
     const cullTop = camCenterY - visH * 0.5 - 240;
     const cullBottom = camCenterY + visH * 0.5 + 240;
 
+    const alpha = interp?.alpha !== undefined ? clampAlpha(interp.alpha) : 1;
+    const playerX = interp?.playerX ?? state.player.x;
+    const playerY = interp?.playerY ?? state.player.y;
+    const playerOffsetX = playerX - state.player.x;
+    const playerOffsetY = playerY - state.player.y;
+    const projSnaps = alpha < 1 ? interp?.projSnaps : undefined;
+
     // 1. Player passive auras (Garlic / Soul Eater + Laurel protective shield)
-    this.renderPlayerAuras(state);
+    this.renderPlayerAuras(state, playerX, playerY);
 
     // 2. Active Zones (pools, slashes, lightning, explosions, pentagrams, clock hand, shield burst)
     const zones = state.zones;
     for (let i = 0; i < zones.length; i++) {
       const z = zones[i]!;
+      const zx = z.kind === 'aura' ? z.x + playerOffsetX : z.x;
+      const zy = z.kind === 'aura' ? z.y + playerOffsetY : z.y;
       if (
         z.kind !== 'pentagram' &&
         z.kind !== 'lightning' &&
-        (z.x + z.radius < cullLeft ||
-          z.x - z.radius > cullRight ||
-          z.y + z.radius < cullTop ||
-          z.y - z.radius > cullBottom)
+        (zx + z.radius < cullLeft ||
+          zx - z.radius > cullRight ||
+          zy + z.radius < cullTop ||
+          zy - z.radius > cullBottom)
       ) {
         continue;
       }
-      this.renderZone(z, state.tick, highQuality);
+      this.renderZone(z, state.tick, highQuality, zx, zy);
     }
 
     // 3. Projectiles & Orbiters
@@ -130,11 +143,14 @@ export class VfxRenderer {
     const drawProjAccents = highQuality && projectiles.length <= 90;
     for (let i = 0; i < projectiles.length; i++) {
       const p = projectiles[i]!;
+      const snap = projSnaps?.get(p.uid);
+      const px = snap ? interpolateValue(snap.prevX, snap.currX, alpha) : p.x;
+      const py = snap ? interpolateValue(snap.prevY, snap.currY, alpha) : p.y;
       if (
-        p.x < cullLeft ||
-        p.x > cullRight ||
-        p.y < cullTop ||
-        p.y > cullBottom
+        px < cullLeft ||
+        px > cullRight ||
+        py < cullTop ||
+        py > cullBottom
       ) {
         continue;
       }
@@ -147,7 +163,7 @@ export class VfxRenderer {
         sprite.setFrame(p.vfxKey);
       }
       sprite.setOrigin(0.5, 0.5);
-      sprite.setPosition(p.x, p.y);
+      sprite.setPosition(px, py);
       sprite.setScale(p.scale * 0.68);
       sprite.setAlpha(p.alpha);
       sprite.setFlipX(Boolean(p.flipX));
@@ -167,7 +183,7 @@ export class VfxRenderer {
       }
 
       if (drawProjAccents) {
-        this.renderProjectileAccent(p.vfxKey, p.x, p.y, p.vx, p.vy, p.scale, p.alpha);
+        this.renderProjectileAccent(p.vfxKey, px, py, p.vx, p.vy, p.scale, p.alpha);
       }
     }
 
@@ -175,7 +191,7 @@ export class VfxRenderer {
     const beams = state.beams;
     for (let i = 0; i < beams.length; i++) {
       const b = beams[i]!;
-      this.renderBeam(b, state.tick, highQuality);
+      this.renderBeam(b, state.tick, highQuality, playerOffsetX, playerOffsetY);
     }
 
     // 5. Screen Flash overlay
@@ -195,7 +211,11 @@ export class VfxRenderer {
     this.glowPool.endFrame();
   }
 
-  private renderPlayerAuras(state: RenderFrameState): void {
+  private renderPlayerAuras(
+    state: RenderFrameState,
+    playerX: number,
+    playerY: number,
+  ): void {
     const p = state.player;
     const fg = this.floorGraphics;
 
@@ -206,9 +226,9 @@ export class VfxRenderer {
       const ringColor = p.soulEaterActive ? 0xff467e : 0x9effbc;
 
       fg.lineStyle(2.2, ringColor, p.soulEaterActive ? 0.48 : 0.34);
-      fg.strokeCircle(p.x, p.y, r);
+      fg.strokeCircle(playerX, playerY, r);
       fg.fillStyle(color, p.soulEaterActive ? 0.09 : 0.06);
-      fg.fillCircle(p.x, p.y, r);
+      fg.fillCircle(playerX, playerY, r);
     }
 
     if (p.laurelShieldCharges > 0) {
@@ -222,11 +242,11 @@ export class VfxRenderer {
       for (let i = 0; i < segs; i++) {
         const a0 = baseAngle + (i / segs) * Math.PI * 2;
         tg.beginPath();
-        tg.arc(p.x, p.y, shieldR, a0, a0 + arcSpan, false);
+        tg.arc(playerX, playerY, shieldR, a0, a0 + arcSpan, false);
         tg.strokePath();
       }
       tg.fillStyle(0x52f7be, 0.11);
-      tg.fillCircle(p.x, p.y, shieldR);
+      tg.fillCircle(playerX, playerY, shieldR);
     }
   }
 
@@ -234,6 +254,8 @@ export class VfxRenderer {
     z: RenderZoneState,
     tick: number,
     highQuality: boolean,
+    renderX = z.x,
+    renderY = z.y,
   ): void {
     const fade = Math.max(0, 1 - z.progress);
     const fg = this.floorGraphics;
@@ -243,7 +265,7 @@ export class VfxRenderer {
       const vfxSprite = this.zoneSpritePool.acquire();
       vfxSprite.setTexture(ATLAS_VFX, z.vfxKey);
       vfxSprite.setOrigin(0.5, 0.5);
-      vfxSprite.setPosition(z.x, z.y);
+      vfxSprite.setPosition(renderX, renderY);
       const scale = (z.radius * 2) / 96;
       vfxSprite.setScale(scale);
       vfxSprite.setRotation(tick * 0.015);
@@ -540,27 +562,33 @@ export class VfxRenderer {
     b: RenderFrameState['beams'][number],
     tick: number,
     highQuality: boolean,
+    offsetX = 0,
+    offsetY = 0,
   ): void {
     const tg = this.topGraphics;
     const alpha = Math.max(0, Math.min(1, b.alpha));
+    const x1 = b.x1 + offsetX;
+    const y1 = b.y1 + offsetY;
+    const x2 = b.x2 + offsetX;
+    const y2 = b.y2 + offsetY;
 
     // Outer prismatic halo
     tg.lineStyle(b.width * 1.45, b.color, alpha * 0.28);
-    tg.lineBetween(b.x1, b.y1, b.x2, b.y2);
+    tg.lineBetween(x1, y1, x2, y2);
 
     // Mid core color
     tg.lineStyle(b.width * 0.7, b.color, alpha * 0.65);
-    tg.lineBetween(b.x1, b.y1, b.x2, b.y2);
+    tg.lineBetween(x1, y1, x2, y2);
 
     // Pure white laser core
     tg.lineStyle(Math.max(3, b.width * 0.24), 0xffffff, alpha * 0.95);
-    tg.lineBetween(b.x1, b.y1, b.x2, b.y2);
+    tg.lineBetween(x1, y1, x2, y2);
 
     // Origin star flare cap
     const cap = this.zoneSpritePool.acquire();
     cap.setTexture(ATLAS_VFX, 'phieraggi_beam_cap');
     cap.setOrigin(0.5, 0.5);
-    cap.setPosition(b.x1, b.y1);
+    cap.setPosition(x1, y1);
     cap.setScale(0.65 + Math.sin(tick * 0.25) * 0.08);
     cap.setRotation(tick * 0.09);
     cap.setAlpha(alpha * 0.72);
@@ -569,7 +597,7 @@ export class VfxRenderer {
 
     if (highQuality) {
       const tipGlow = this.glowPool.acquire();
-      tipGlow.setPosition(b.x2, b.y2);
+      tipGlow.setPosition(x2, y2);
       tipGlow.setScale(0.7);
       tipGlow.setAlpha(alpha * 0.45);
       tipGlow.setTint(b.color);

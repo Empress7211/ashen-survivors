@@ -23,3 +23,25 @@ export interface BattleRendererOptions extends BattleRendererDisplayOptions {
   /** Optional error callback if WebGL/Phaser asset loading reports a failure. */
   onError?: (error: unknown) => void;
 }
+
+export interface InterpPosSnapshot {
+  prevX: number;
+  prevY: number;
+  currX: number;
+  currY: number;
+  seenTick: number;
+}
+
+export interface EntityRenderInterp {
+  alpha?: number;
+  playerX?: number;
+  playerY?: number;
+  enemySnaps?: ReadonlyMap<number, InterpPosSnapshot>;
+}
+
+export interface VfxRenderInterp {
+  alpha?: number;
+  playerX?: number;
+  playerY?: number;
+  projSnaps?: ReadonlyMap<number, InterpPosSnapshot>;
+}
