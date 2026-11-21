@@ -33,8 +33,8 @@
   --cyan: #4fc3f7;
 
   /* Typography */
-  --font-sc: 'Noto Serif SC', 'Cinzel', Georgia, serif;
-  --font-num: 'Cinzel', 'Noto Serif SC', Georgia, serif;
+  --font-sc: 'Noto Serif SC', 'Cinzel', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Georgia, serif;
+  --font-num: 'Cinzel', 'Noto Serif SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Georgia, serif;
 
   /* Borders & Shadows */
   --radius-sm: 6px;

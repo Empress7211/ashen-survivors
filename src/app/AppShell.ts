@@ -236,6 +236,7 @@ export class AppShell {
           catalog: this.catalog,
           saveStore: this.saveStore,
           audio: this.audio,
+          onRestartBattle: () => this.renderScreen('battle'),
           onExitToMenu: () => this.renderScreen('title'),
         });
         this.battleController.start();

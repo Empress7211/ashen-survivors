@@ -434,6 +434,22 @@ export interface AudioAndDisplaySettings {
   language: 'zh-CN';
 }
 
+export type FunPresetId = 'standard' | 'casual' | 'musou' | 'custom';
+
+export interface FunModeMultipliers {
+  mightMultiplier: number;
+  moveSpeedMultiplier: number;
+  xpMultiplier: number;
+  cooldownMultiplier: number;
+  damageTakenMultiplier: number;
+  bonusRevivals: number;
+  bonusAmount: number;
+}
+
+export interface FunModeSettings extends FunModeMultipliers {
+  preset: FunPresetId;
+}
+
 export interface SaveState {
   version: 1;
   gold: number;
@@ -463,6 +479,7 @@ export interface SaveState {
     limitBreakEnabled: boolean;
     endless: boolean;
   };
+  funMode?: FunModeSettings;
   settings: AudioAndDisplaySettings;
 }
 
@@ -504,6 +521,7 @@ export interface RunStartConfig {
   arcanasEnabled: boolean;
   limitBreakEnabled: boolean;
   endless: boolean;
+  funMode?: FunModeSettings;
   seed?: number;
 }
 
@@ -676,6 +694,7 @@ export interface HudSnapshot {
   hurry: boolean;
   endless: boolean;
   endlessCycle: number;
+  funMode?: FunModeSettings;
   hasMilkyWayMap?: boolean;
   mapMarkers?: readonly PauseMapMarker[];
 }

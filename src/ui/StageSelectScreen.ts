@@ -1,6 +1,6 @@
 import { STAGE_IDS } from '../contracts/ids.ts';
 import type { AudioCue, Catalog, StageGroundPickup, StageId } from '../contracts/index.ts';
-import type { SaveStore } from '../core/index.ts';
+import { FUN_MODE_PRESETS, formatFunModeBadge, type SaveStore } from '../core/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatClock, formatInt, formatModifierDelta, iconUrl, stageBgUrl } from '../app/formatters.ts';
 
@@ -24,6 +24,7 @@ function describeDirection(x: number, y: number): string {
 
 export function renderStageSelectScreen(deps: StageSelectDeps): HTMLElement {
   const { catalog, saveStore, onCue } = deps;
+  let showCustomSliders = saveStore.getFunMode().preset === 'custom';
   const root = el('div', {
     className: 'menu-screen',
     dataset: { testid: 'screen-stage-select' },
@@ -32,6 +33,8 @@ export function renderStageSelectScreen(deps: StageSelectDeps): HTMLElement {
   const renderContent = (): void => {
     root.replaceChildren();
     const state = saveStore.getState();
+    const funMode = saveStore.getFunMode();
+    const funBadge = formatFunModeBadge(funMode);
     const selectedHero = catalog.heroes[state.selectedHeroId];
     const selectedStageId: StageId = state.selectedStageId;
     const stage = catalog.stages[selectedStageId];
@@ -130,6 +133,188 @@ export function renderStageSelectScreen(deps: StageSelectDeps): HTMLElement {
       card.style.backgroundImage = `url('${stageBgUrl(sId)}')`;
       stageList.appendChild(card);
     }
+
+    const funPresets: Array<{
+      id: 'standard' | 'casual' | 'musou';
+      title: string;
+      desc: string;
+      badge?: string;
+      badgeClass?: string;
+    }> = [
+      {
+        id: 'standard',
+        title: '原版硬核',
+        desc: '1.0x 原汁原味生存挑战',
+      },
+      {
+        id: 'casual',
+        title: '爽玩割草',
+        desc: `攻${FUN_MODE_PRESETS.casual.mightMultiplier}x · 速${FUN_MODE_PRESETS.casual.moveSpeedMultiplier}x · 经验${FUN_MODE_PRESETS.casual.xpMultiplier}x · 投射+1 · 复活+1`,
+        badge: '推荐',
+        badgeClass: 'tag-badge-emerald',
+      },
+      {
+        id: 'musou',
+        title: '无双解压',
+        desc: `攻${FUN_MODE_PRESETS.musou.mightMultiplier}x · 速${FUN_MODE_PRESETS.musou.moveSpeedMultiplier}x · 经验${FUN_MODE_PRESETS.musou.xpMultiplier}x · 投射+2 · 复活+2`,
+        badge: '极爽',
+        badgeClass: 'tag-badge-arcana',
+      },
+    ];
+
+    const makeFunSlider = (
+      label: string,
+      testId: string,
+      min: number,
+      max: number,
+      step: number,
+      val: number,
+      valText: string,
+      onChange: (nextVal: number) => void,
+    ): HTMLElement => {
+      const valueEl = el('span', { className: 'num-font', text: valText });
+      const input = el('input', {
+        className: 'gothic-range',
+        attrs: { type: 'range', min, max, step, value: val },
+        dataset: { testid: testId },
+      }) as HTMLInputElement;
+      input.addEventListener('input', () => {
+        onChange(Number(input.value));
+      });
+      return el('div', {
+        className: 'fun-slider-item',
+        children: [
+          el('div', { className: 'slider-label-row', children: [label, valueEl] }),
+          input,
+        ],
+      });
+    };
+
+    const funModePanel = el('section', {
+      className: 'fun-mode-panel',
+      dataset: { testid: 'fun-mode-panel' },
+      children: [
+        el('div', {
+          className: 'fun-mode-head',
+          children: [
+            el('div', {
+              className: 'fun-mode-title-wrap',
+              children: [
+                el('span', { className: 'fun-mode-title', text: '狩猎爽度与倍率模式' }),
+                el('span', {
+                  className: `tag-badge tag-badge-${funBadge.tone}`,
+                  text: funBadge.label,
+                }),
+                el('span', {
+                  className: 'fun-mode-tip',
+                  text: '全模式 100% 正常获取金币、成就与解锁！新手推荐「爽玩割草」',
+                }),
+              ],
+            }),
+            el('button', {
+              className: 'gothic-btn fun-customize-btn',
+              text: showCustomSliders ? '收起倍率微调 ▲' : '自定义倍率 ▼',
+              dataset: { testid: 'btn-fun-customize' },
+              onClick: () => {
+                onCue({ type: 'ui_click' });
+                showCustomSliders = !showCustomSliders;
+                renderContent();
+              },
+            }),
+          ],
+        }),
+        el('div', {
+          className: 'fun-preset-grid',
+          children: funPresets.map((p) => {
+            const active = funMode.preset === p.id;
+            return el('button', {
+              className: `fun-preset-card ${active ? 'active' : ''}`,
+              dataset: { testid: `btn-fun-${p.id}` },
+              children: [
+                el('div', {
+                  className: 'toggle-chip-title',
+                  children: [
+                    el('span', { text: p.title }),
+                    p.badge
+                      ? el('span', {
+                          className: `tag-badge ${p.badgeClass ?? 'tag-badge-gold'}`,
+                          text: p.badge,
+                        })
+                      : null,
+                  ],
+                }),
+                el('span', { className: 'toggle-chip-hint', text: p.desc }),
+              ],
+              onClick: () => {
+                onCue({ type: 'ui_click' });
+                saveStore.setFunPreset(p.id);
+                renderContent();
+              },
+            });
+          }),
+        }),
+        showCustomSliders
+          ? el('div', {
+              className: 'fun-sliders-drawer',
+              dataset: { testid: 'fun-sliders-drawer' },
+              children: [
+                makeFunSlider(
+                  '攻击倍率 (力量)',
+                  'slider-fun-might',
+                  100,
+                  500,
+                  25,
+                  Math.round(funMode.mightMultiplier * 100),
+                  `x${funMode.mightMultiplier.toFixed(2)}`,
+                  (raw) => {
+                    saveStore.updateCustomFunMode({ mightMultiplier: raw / 100 });
+                    renderContent();
+                  },
+                ),
+                makeFunSlider(
+                  '移速倍率',
+                  'slider-fun-speed',
+                  100,
+                  200,
+                  5,
+                  Math.round(funMode.moveSpeedMultiplier * 100),
+                  `x${funMode.moveSpeedMultiplier.toFixed(2)}`,
+                  (raw) => {
+                    saveStore.updateCustomFunMode({ moveSpeedMultiplier: raw / 100 });
+                    renderContent();
+                  },
+                ),
+                makeFunSlider(
+                  '经验与磁力',
+                  'slider-fun-xp',
+                  100,
+                  400,
+                  25,
+                  Math.round(funMode.xpMultiplier * 100),
+                  `x${funMode.xpMultiplier.toFixed(2)}`,
+                  (raw) => {
+                    saveStore.updateCustomFunMode({ xpMultiplier: raw / 100 });
+                    renderContent();
+                  },
+                ),
+                makeFunSlider(
+                  '承受伤害比例',
+                  'slider-fun-taken',
+                  25,
+                  100,
+                  5,
+                  Math.round(funMode.damageTakenMultiplier * 100),
+                  `${Math.round(funMode.damageTakenMultiplier * 100)}%`,
+                  (raw) => {
+                    saveStore.updateCustomFunMode({ damageTakenMultiplier: raw / 100 });
+                    renderContent();
+                  },
+                ),
+              ],
+            })
+          : null,
+      ],
+    });
 
     const toggleItems: Array<{
       key: keyof typeof state.stageOptions;
@@ -290,7 +475,7 @@ export function renderStageSelectScreen(deps: StageSelectDeps): HTMLElement {
               className: 'stat-row',
               children: [
                 el('span', { className: 'stat-row-label', text: '经验倍率' }),
-                el('span', { className: 'stat-row-val', text: `x${(stage.baseModifiers.xp * (state.stageOptions.hyper ? stage.hyperModifiers.xpMultiplier : 1)).toFixed(2)}` }),
+                el('span', { className: 'stat-row-val', text: `x${(stage.baseModifiers.xp * (state.stageOptions.hyper ? stage.hyperModifiers.xpMultiplier : 1) * funMode.xpMultiplier).toFixed(2)}` }),
               ],
             }),
             el('div', {
@@ -309,6 +494,7 @@ export function renderStageSelectScreen(deps: StageSelectDeps): HTMLElement {
             }),
           ],
         }),
+        funModePanel,
         togglesGrid,
         el('div', {
           className: 'ground-items-list',

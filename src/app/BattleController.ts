@@ -24,6 +24,7 @@ export interface BattleControllerDeps {
   catalog: Catalog;
   saveStore: SaveStore;
   audio: AudioEngine;
+  onRestartBattle?: () => void;
   onExitToMenu: () => void;
 }
 
@@ -32,6 +33,7 @@ export class BattleController {
   private readonly catalog: Catalog;
   private readonly saveStore: SaveStore;
   private readonly audio: AudioEngine;
+  private readonly onRestartBattle?: () => void;
   private readonly onExitToMenu: () => void;
 
   private readonly sim: GameSimulation;
@@ -69,6 +71,7 @@ export class BattleController {
     this.catalog = deps.catalog;
     this.saveStore = deps.saveStore;
     this.audio = deps.audio;
+    this.onRestartBattle = deps.onRestartBattle;
     this.onExitToMenu = deps.onExitToMenu;
 
     this.achievementById = new Map(this.catalog.achievements.map((a) => [a.id, a]));
@@ -86,6 +89,7 @@ export class BattleController {
         save.unlockedRelics.includes('relic_randomazzo'),
       limitBreakEnabled: save.stageOptions.limitBreakEnabled,
       endless: save.stageOptions.endless,
+      funMode: this.saveStore.getFunMode(),
       seed: ((Date.now() ^ ((save.totalRuns + 1) * 2654435761)) >>> 0) || 1,
     };
 
@@ -617,8 +621,18 @@ export class BattleController {
                 hurry: frame.hud.hurry,
                 endless: frame.hud.endless,
                 endlessCycle: frame.hud.endlessCycle,
+                funMode: frame.hud.funMode,
               },
               onCue: (cue) => this.audio.playCue(cue),
+              onRetryCasual: () => {
+                this.audio.playCue({ type: 'ui_buy' });
+                this.saveStore.setFunPreset('casual');
+                if (this.onRestartBattle) {
+                  this.onRestartBattle();
+                } else {
+                  this.onExitToMenu();
+                }
+              },
               onReturnMenu: () => this.exitToMenu(),
             }),
           );

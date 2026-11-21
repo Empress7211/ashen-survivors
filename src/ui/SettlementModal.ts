@@ -1,4 +1,10 @@
-import type { AudioCue, Catalog, SettlementModalState } from '../contracts/index.ts';
+import type {
+  AudioCue,
+  Catalog,
+  FunModeSettings,
+  SettlementModalState,
+} from '../contracts/index.ts';
+import { formatFunModeBadge } from '../core/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatAchievementRewardTags, formatClock, formatInt, iconUrl } from '../app/formatters.ts';
 import { renderShareCardModal } from './ShareCardModal.ts';
@@ -11,8 +17,10 @@ export interface SettlementModalDeps {
     hurry?: boolean;
     endless?: boolean;
     endlessCycle?: number;
+    funMode?: FunModeSettings;
   };
   onCue?: (cue: AudioCue) => void;
+  onRetryCasual?: () => void;
   onReturnMenu: () => void;
 }
 
@@ -91,6 +99,12 @@ export function renderSettlementModal(deps: SettlementModalDeps): HTMLElement {
       }),
     );
 
+  const isStandardMode =
+    !deps.runMeta?.funMode || deps.runMeta.funMode.preset === 'standard';
+  const showCasualNudge =
+    !settlement.victory && isStandardMode && Boolean(deps.onRetryCasual);
+  const funBadge = formatFunModeBadge(deps.runMeta?.funMode);
+
   return el('div', {
     className: 'modal-backdrop',
     dataset: { testid: 'modal-settlement' },
@@ -110,7 +124,7 @@ export function renderSettlementModal(deps: SettlementModalDeps): HTMLElement {
                   }),
                   el('p', {
                     className: 'modal-subtitle',
-                    text: `${stage.name} · ${hero.name}${settlement.causeOfDeath ? ` · 终结原因：${settlement.causeOfDeath}` : ''}`,
+                    text: `${stage.name} · ${hero.name} · ${funBadge.label}${settlement.causeOfDeath ? ` · 终结原因：${settlement.causeOfDeath}` : ''}`,
                   }),
                 ],
               }),
@@ -191,6 +205,33 @@ export function renderSettlementModal(deps: SettlementModalDeps): HTMLElement {
                   }),
                 ],
               }),
+              showCasualNudge
+                ? el('div', {
+                    className: 'casual-nudge-banner',
+                    dataset: { testid: 'settlement-casual-nudge' },
+                    children: [
+                      el('div', {
+                        className: 'codex-info',
+                        children: [
+                          el('span', {
+                            className: 'codex-name',
+                            text: '觉得前中期压力太大、还没合成超武就倒下了？',
+                          }),
+                          el('span', {
+                            className: 'codex-desc',
+                            text: '一键开启「爽玩割草模式」（2x 攻击、2x 经验、1.35x 移速、投射+1、免费复活+1），照样 100% 拿金币与全成就！',
+                          }),
+                        ],
+                      }),
+                      el('button', {
+                        className: 'gothic-btn gothic-btn-gold',
+                        text: '⚡ 开启爽玩割草 · 立即再战',
+                        dataset: { testid: 'btn-settlement-retry-casual' },
+                        onClick: () => deps.onRetryCasual?.(),
+                      }),
+                    ],
+                  })
+                : null,
             ],
           }),
           el('footer', {

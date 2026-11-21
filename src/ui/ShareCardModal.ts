@@ -2,9 +2,11 @@ import { HERO_IDS, STAGE_IDS } from '../contracts/ids.ts';
 import type {
   AudioCue,
   Catalog,
+  FunModeSettings,
   SaveState,
   SettlementModalState,
 } from '../contracts/index.ts';
+import { formatFunModeBadge } from '../core/index.ts';
 import { el } from '../app/dom.ts';
 import { formatClock, formatInt, iconUrl, stageBgUrl } from '../app/formatters.ts';
 import { drawQrCodeOnCanvas } from './qrCode.ts';
@@ -12,6 +14,8 @@ import { drawQrCodeOnCanvas } from './qrCode.ts';
 export const SHARE_GAME_URL = 'https://survive.ilovesjtu.com';
 const POSTER_W = 1080;
 const POSTER_H = 1350;
+const FONT_SC = "'Noto Serif SC', 'Cinzel', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Georgia, serif";
+const FONT_NUM = "'Cinzel', 'Noto Serif SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Georgia, serif";
 
 export interface SettlementSharePayload {
   kind: 'settlement';
@@ -22,6 +26,7 @@ export interface SettlementSharePayload {
     hurry?: boolean;
     endless?: boolean;
     endlessCycle?: number;
+    funMode?: FunModeSettings;
   };
   shareUrl?: string;
   onClose: () => void;
@@ -199,10 +204,11 @@ function buildShareCaption(deps: ShareCardModalDeps): string {
     const s = deps.settlement;
     const hero = deps.catalog.heroes[s.heroId];
     const stage = deps.catalog.stages[s.stageId];
+    const badge = formatFunModeBadge(deps.runMeta?.funMode);
     const topWeapon = [...s.weaponBreakdown].sort((a, b) => b.totalDamage - a.totalDamage)[0];
     const outcome = s.victory ? '凯旋通关' : '血战落幕';
     const topStr = topWeapon ? `，主力输出「${topWeapon.name}」打出 ${formatInt(topWeapon.totalDamage)} 伤害` : '';
-    return `我在《灰烬之夜》使用「${hero.name}」在「${stage.name}」${outcome}！存活 ${formatClock(s.elapsedSeconds)}、Lv.${s.level}、讨伐 ${formatInt(s.kills)} 魔物${topStr}。电脑/手机/手柄免下载直接开玩 👉 ${url} #灰烬之夜 #吸血鬼幸存者 #网页游戏`;
+    return `我在《灰烬之夜》[${badge.label}] 使用「${hero.name}」在「${stage.name}」${outcome}！存活 ${formatClock(s.elapsedSeconds)}、Lv.${s.level}、讨伐 ${formatInt(s.kills)} 魔物${topStr}。电脑/手机/手柄免下载直接开玩 👉 ${url} #灰烬之夜 #吸血鬼幸存者 #网页游戏`;
   }
 
   const st = deps.saveState;
@@ -275,7 +281,7 @@ async function renderPosterCanvas(deps: ShareCardModalDeps): Promise<HTMLCanvasE
   ctx.fillText('WEB HD EDITION · VAMPIRE SURVIVORS', POSTER_W * 0.5, 76);
 
   ctx.fillStyle = '#f8ecd4';
-  ctx.font = "700 48px 'Noto Serif SC', 'Cinzel', Georgia, serif";
+  ctx.font = `700 48px ${FONT_SC}`;
   ctx.fillText('《灰烬之夜》战报圣典', POSTER_W * 0.5, 130);
 
   ctx.fillStyle = '#b9acc4';
@@ -332,6 +338,15 @@ async function renderPosterCanvas(deps: ShareCardModalDeps): Promise<HTMLCanvasE
 
   if (isSettlement) {
     const stage = deps.catalog.stages[deps.settlement.stageId];
+    const funBadge = formatFunModeBadge(deps.runMeta?.funMode);
+    const funColors: Record<'crimson' | 'emerald' | 'arcana' | 'gold', [string, string, string]> = {
+      crimson: ['rgba(168, 30, 42, 0.34)', 'rgba(224, 60, 73, 0.72)', '#ffb3ba'],
+      emerald: ['rgba(32, 118, 82, 0.36)', 'rgba(96, 227, 170, 0.74)', '#8ef2c4'],
+      arcana: ['rgba(104, 58, 170, 0.36)', 'rgba(180, 140, 255, 0.74)', '#e2ccff'],
+      gold: ['rgba(160, 122, 32, 0.36)', 'rgba(244, 216, 125, 0.76)', '#f7dfa0'],
+    };
+    const [fFill, fStroke, fText] = funColors[funBadge.tone];
+
     let pillX = cardX + 150;
     pillX += drawBadgePill(
       ctx,
@@ -341,13 +356,23 @@ async function renderPosterCanvas(deps: ShareCardModalDeps): Promise<HTMLCanvasE
       'rgba(212, 175, 55, 0.16)',
       'rgba(212, 175, 55, 0.58)',
       '#f4d87d',
-      "600 17px 'Noto Serif SC', Georgia, serif",
+      `600 17px ${FONT_SC}`,
+    ) + 10;
+    pillX += drawBadgePill(
+      ctx,
+      pillX,
+      366,
+      funBadge.label,
+      fFill,
+      fStroke,
+      fText,
+      `700 17px ${FONT_SC}`,
     ) + 10;
     if (deps.runMeta?.hyper) {
-      pillX += drawBadgePill(ctx, pillX, 366, 'HYPER', 'rgba(168, 30, 42, 0.35)', 'rgba(224, 60, 73, 0.72)', '#ffb3ba') + 10;
+      pillX += drawBadgePill(ctx, pillX, 366, 'HYPER', 'rgba(168, 30, 42, 0.35)', 'rgba(224, 60, 73, 0.72)', '#ffb3ba', `700 17px ${FONT_NUM}`) + 10;
     }
     if (deps.runMeta?.hurry) {
-      pillX += drawBadgePill(ctx, pillX, 366, 'HURRY 2X', 'rgba(180, 128, 30, 0.28)', 'rgba(244, 216, 125, 0.65)', '#f4d87d') + 10;
+      pillX += drawBadgePill(ctx, pillX, 366, 'HURRY 2X', 'rgba(180, 128, 30, 0.28)', 'rgba(244, 216, 125, 0.65)', '#f4d87d', `700 17px ${FONT_NUM}`) + 10;
     }
     if (deps.runMeta?.endless) {
       const label = deps.runMeta.endlessCycle && deps.runMeta.endlessCycle > 0
@@ -361,21 +386,35 @@ async function renderPosterCanvas(deps: ShareCardModalDeps): Promise<HTMLCanvasE
         'rgba(104, 58, 170, 0.35)',
         'rgba(180, 140, 255, 0.7)',
         '#e2ccff',
-        "600 17px 'Noto Serif SC', Georgia, serif",
+        `600 17px ${FONT_SC}`,
       );
     }
   } else {
     const unlockedRelics = deps.saveState.unlockedRelics.length;
-    drawBadgePill(
+    let pillX = cardX + 150;
+    pillX += drawBadgePill(
       ctx,
-      cardX + 150,
+      pillX,
       366,
       `已获圣物 ${unlockedRelics}/5 · 图鉴收录 ${deps.saveState.discoveredItems.length}`,
       'rgba(104, 58, 170, 0.3)',
       'rgba(180, 140, 255, 0.62)',
       '#e2ccff',
-      "600 17px 'Noto Serif SC', Georgia, serif",
-    );
+      `600 17px ${FONT_SC}`,
+    ) + 10;
+    if (deps.saveState.funMode && deps.saveState.funMode.preset !== 'standard') {
+      const funBadge = formatFunModeBadge(deps.saveState.funMode);
+      drawBadgePill(
+        ctx,
+        pillX,
+        366,
+        `当前模式：${funBadge.label}`,
+        'rgba(32, 118, 82, 0.34)',
+        'rgba(96, 227, 170, 0.7)',
+        '#8ef2c4',
+        `600 17px ${FONT_SC}`,
+      );
+    }
   }
 
   // 4. Four Highlight Metrics (y = 434..548)

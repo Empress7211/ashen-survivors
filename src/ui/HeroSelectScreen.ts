@@ -55,6 +55,7 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
       revivalsConsumed: 0,
       divineBloodlineBonusMaxHp: 0,
       soulEaterMightBonus: 0,
+      funMode: state.funMode,
     });
 
     const header = el('header', {

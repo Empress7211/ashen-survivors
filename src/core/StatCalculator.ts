@@ -1,6 +1,8 @@
 import type {
   ArcanaId,
   Catalog,
+  FunModeMultipliers,
+  FunModeSettings,
   HeroId,
   PassiveId,
   PowerUpId,
@@ -11,6 +13,62 @@ import type {
 
 export const MAX_WEAPON_SLOTS = 6;
 export const MAX_PASSIVE_SLOTS = 6;
+
+export const FUN_MODE_PRESETS: Readonly<
+  Record<'standard' | 'casual' | 'musou', FunModeSettings>
+> = {
+  standard: {
+    preset: 'standard',
+    mightMultiplier: 1.0,
+    moveSpeedMultiplier: 1.0,
+    xpMultiplier: 1.0,
+    cooldownMultiplier: 1.0,
+    damageTakenMultiplier: 1.0,
+    bonusRevivals: 0,
+    bonusAmount: 0,
+  },
+  casual: {
+    preset: 'casual',
+    mightMultiplier: 2.0,
+    moveSpeedMultiplier: 1.35,
+    xpMultiplier: 2.0,
+    cooldownMultiplier: 0.85,
+    damageTakenMultiplier: 0.65,
+    bonusRevivals: 1,
+    bonusAmount: 1,
+  },
+  musou: {
+    preset: 'musou',
+    mightMultiplier: 3.5,
+    moveSpeedMultiplier: 1.55,
+    xpMultiplier: 3.0,
+    cooldownMultiplier: 0.72,
+    damageTakenMultiplier: 0.4,
+    bonusRevivals: 2,
+    bonusAmount: 2,
+  },
+};
+
+export function formatFunModeBadge(fm?: FunModeSettings): {
+  label: string;
+  detail: string;
+  tone: 'crimson' | 'emerald' | 'arcana' | 'gold';
+} {
+  if (!fm || fm.preset === 'standard') {
+    return { label: '原版硬核', detail: '1.0x 标准挑战', tone: 'crimson' };
+  }
+  if (fm.preset === 'casual') {
+    return { label: '爽玩割草', detail: '攻2x · 速1.35x · 经验2x', tone: 'emerald' };
+  }
+  if (fm.preset === 'musou') {
+    return { label: '无双解压', detail: '攻3.5x · 速1.55x · 经验3x', tone: 'arcana' };
+  }
+  return {
+    label: '自定义爽局',
+    detail: `攻x${fm.mightMultiplier.toFixed(1)} · 速x${fm.moveSpeedMultiplier.toFixed(2)}`,
+    tone: 'gold',
+  };
+}
 
 export interface StatCalculationInput {
   catalog: Catalog;
@@ -29,6 +87,7 @@ export interface StatCalculationInput {
   divineBloodlineBonusMaxHp: number;
   soulEaterMightBonus: number;
   limitBreakStats?: StatDelta;
+  funMode?: FunModeMultipliers;
 }
 
 function applyDelta(stats: StatBlock, delta: StatDelta, multiplier = 1): void {
@@ -71,6 +130,7 @@ export function calculatePlayerStats(input: StatCalculationInput): StatBlock {
     divineBloodlineBonusMaxHp,
     soulEaterMightBonus,
     limitBreakStats,
+    funMode,
   } = input;
 
   const hero = catalog.heroes[heroId];
@@ -190,6 +250,17 @@ export function calculatePlayerStats(input: StatCalculationInput): StatBlock {
     const emptySlots = Math.max(0, maxWeaponSlots - weaponSlotCount);
     stats.might += emptySlots * (p.mightPerEmptySlot ?? 0.2);
     stats.cooldown += emptySlots * (p.cooldownPerEmptySlot ?? -0.08);
+  }
+
+  // 7.5 Fun / Casual / Musou multipliers
+  if (funMode) {
+    stats.might *= funMode.mightMultiplier;
+    stats.moveSpeed *= funMode.moveSpeedMultiplier;
+    stats.growth *= funMode.xpMultiplier;
+    stats.magnet *= 1 + Math.max(0, funMode.xpMultiplier - 1) * 0.5;
+    stats.cooldown *= funMode.cooldownMultiplier;
+    stats.revivals += funMode.bonusRevivals;
+    stats.amount += funMode.bonusAmount;
   }
 
   // 8. Clamp safety floors

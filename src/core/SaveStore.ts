@@ -15,6 +15,8 @@ import type {
   BaseWeaponId,
   Catalog,
   EnemyId,
+  FunModeMultipliers,
+  FunModeSettings,
   HeroId,
   PassiveId,
   PowerUpId,
@@ -25,6 +27,7 @@ import type {
   StageId,
 } from '../contracts/types.ts';
 import { CATALOG } from '../data/index.ts';
+import { FUN_MODE_PRESETS } from './StatCalculator.ts';
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -157,6 +160,7 @@ export function createDefaultSaveState(catalog: Catalog): SaveState {
       limitBreakEnabled: false,
       endless: false,
     },
+    funMode: { ...FUN_MODE_PRESETS.standard },
     settings: createDefaultSettings(),
   };
 }
@@ -228,6 +232,60 @@ function uniqueValidIds<T extends string>(
 function nonNegInt(val: unknown, fallback = 0): number {
   if (typeof val !== 'number' || !Number.isFinite(val)) return fallback;
   return Math.max(0, Math.floor(val));
+}
+
+function clampRange(val: unknown, min: number, max: number, fallback: number): number {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return fallback;
+  return Math.min(max, Math.max(min, val));
+}
+
+function matchesPreset(
+  m: FunModeMultipliers,
+  target: FunModeSettings,
+): boolean {
+  return (
+    Math.abs(m.mightMultiplier - target.mightMultiplier) < 1e-3 &&
+    Math.abs(m.moveSpeedMultiplier - target.moveSpeedMultiplier) < 1e-3 &&
+    Math.abs(m.xpMultiplier - target.xpMultiplier) < 1e-3 &&
+    Math.abs(m.cooldownMultiplier - target.cooldownMultiplier) < 1e-3 &&
+    Math.abs(m.damageTakenMultiplier - target.damageTakenMultiplier) < 1e-3 &&
+    m.bonusRevivals === target.bonusRevivals &&
+    m.bonusAmount === target.bonusAmount
+  );
+}
+
+function resolveFunPreset(m: FunModeMultipliers): FunModeSettings['preset'] {
+  if (matchesPreset(m, FUN_MODE_PRESETS.standard)) return 'standard';
+  if (matchesPreset(m, FUN_MODE_PRESETS.casual)) return 'casual';
+  if (matchesPreset(m, FUN_MODE_PRESETS.musou)) return 'musou';
+  return 'custom';
+}
+
+function sanitizeFunMode(raw: unknown): FunModeSettings {
+  const def = FUN_MODE_PRESETS.standard;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ...def };
+  }
+  const obj = raw as Record<string, unknown>;
+  const presetHint =
+    obj.preset === 'casual'
+      ? FUN_MODE_PRESETS.casual
+      : obj.preset === 'musou'
+        ? FUN_MODE_PRESETS.musou
+        : def;
+  const multipliers: FunModeMultipliers = {
+    mightMultiplier: Number(clampRange(obj.mightMultiplier, 1, 5, presetHint.mightMultiplier).toFixed(2)),
+    moveSpeedMultiplier: Number(clampRange(obj.moveSpeedMultiplier, 1, 2, presetHint.moveSpeedMultiplier).toFixed(2)),
+    xpMultiplier: Number(clampRange(obj.xpMultiplier, 1, 4, presetHint.xpMultiplier).toFixed(2)),
+    cooldownMultiplier: Number(clampRange(obj.cooldownMultiplier, 0.5, 1, presetHint.cooldownMultiplier).toFixed(2)),
+    damageTakenMultiplier: Number(clampRange(obj.damageTakenMultiplier, 0.25, 1, presetHint.damageTakenMultiplier).toFixed(2)),
+    bonusRevivals: Math.round(clampRange(obj.bonusRevivals, 0, 3, presetHint.bonusRevivals)),
+    bonusAmount: Math.round(clampRange(obj.bonusAmount, 0, 3, presetHint.bonusAmount)),
+  };
+  return {
+    preset: resolveFunPreset(multipliers),
+    ...multipliers,
+  };
 }
 
 function clamp01(val: unknown, fallback: number): number {
@@ -412,6 +470,8 @@ export function sanitizeSaveState(raw: unknown, catalog: Catalog): SaveState {
     endless: Boolean(rawOpts.endless),
   };
 
+  const funMode = sanitizeFunMode(obj.funMode);
+
   const rawSettings =
     obj.settings && typeof obj.settings === 'object'
       ? (obj.settings as Record<string, unknown>)
@@ -464,6 +524,7 @@ export function sanitizeSaveState(raw: unknown, catalog: Catalog): SaveState {
     selectedHeroId,
     selectedStageId,
     stageOptions,
+    funMode,
     settings,
   };
 }
@@ -719,6 +780,33 @@ export class SaveStore {
       next.arcanasEnabled = false;
     }
     this.state.stageOptions = next;
+    this.save();
+  }
+
+  getFunMode(): FunModeSettings {
+    return this.state.funMode ?? { ...FUN_MODE_PRESETS.standard };
+  }
+
+  setFunPreset(preset: 'standard' | 'casual' | 'musou'): void {
+    this.state.funMode = { ...FUN_MODE_PRESETS[preset] };
+    this.save();
+  }
+
+  updateCustomFunMode(patch: Partial<FunModeMultipliers>): void {
+    const cur = this.getFunMode();
+    const merged: FunModeMultipliers = {
+      mightMultiplier: Number(clampRange(patch.mightMultiplier ?? cur.mightMultiplier, 1, 5, cur.mightMultiplier).toFixed(2)),
+      moveSpeedMultiplier: Number(clampRange(patch.moveSpeedMultiplier ?? cur.moveSpeedMultiplier, 1, 2, cur.moveSpeedMultiplier).toFixed(2)),
+      xpMultiplier: Number(clampRange(patch.xpMultiplier ?? cur.xpMultiplier, 1, 4, cur.xpMultiplier).toFixed(2)),
+      cooldownMultiplier: Number(clampRange(patch.cooldownMultiplier ?? cur.cooldownMultiplier, 0.5, 1, cur.cooldownMultiplier).toFixed(2)),
+      damageTakenMultiplier: Number(clampRange(patch.damageTakenMultiplier ?? cur.damageTakenMultiplier, 0.25, 1, cur.damageTakenMultiplier).toFixed(2)),
+      bonusRevivals: Math.round(clampRange(patch.bonusRevivals ?? cur.bonusRevivals, 0, 3, cur.bonusRevivals)),
+      bonusAmount: Math.round(clampRange(patch.bonusAmount ?? cur.bonusAmount, 0, 3, cur.bonusAmount)),
+    };
+    this.state.funMode = {
+      preset: resolveFunPreset(merged),
+      ...merged,
+    };
     this.save();
   }
 

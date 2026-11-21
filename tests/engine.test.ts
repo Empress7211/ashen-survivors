@@ -10,6 +10,7 @@ import {
 } from '../src/contracts/index.ts';
 import {
   FIXED_DT,
+  FUN_MODE_PRESETS,
   GameSimulation,
   MAX_ACTIVE_XP_GEMS,
   MemoryStorage,
@@ -1088,6 +1089,91 @@ describe('Zero-GC Pooling & Reusable Frame Buffers', () => {
 
     const f4 = sim.step(0, 0, FIXED_DT);
     expect(f4.hud.mapMarkers).toBe(markersRef);
+  });
+
+  it('applies Fun/Casual/Musou multipliers, scales contact damage, and persists custom funMode settings', () => {
+    const store = new SaveStore(CATALOG, new MemoryStorage());
+    expect(store.getFunMode().preset).toBe('standard');
+    expect(store.getFunMode().mightMultiplier).toBe(1.0);
+
+    const stdStats = calculatePlayerStats({
+      catalog: CATALOG,
+      heroId: 'antonio',
+      stageId: 'mad_forest',
+      playerLevel: 1,
+      currentHp: 120,
+      powerUps: {},
+      passives: new Map(),
+      weaponSlotCount: 1,
+      arcanas: [],
+      hyper: false,
+      elapsedSeconds: 0,
+      revivalsConsumed: 0,
+      divineBloodlineBonusMaxHp: 0,
+      soulEaterMightBonus: 0,
+      funMode: FUN_MODE_PRESETS.standard,
+    });
+
+    store.setFunPreset('casual');
+    expect(store.getFunMode().preset).toBe('casual');
+
+    const casualStats = calculatePlayerStats({
+      catalog: CATALOG,
+      heroId: 'antonio',
+      stageId: 'mad_forest',
+      playerLevel: 1,
+      currentHp: 120,
+      powerUps: {},
+      passives: new Map(),
+      weaponSlotCount: 1,
+      arcanas: [],
+      hyper: false,
+      elapsedSeconds: 0,
+      revivalsConsumed: 0,
+      divineBloodlineBonusMaxHp: 0,
+      soulEaterMightBonus: 0,
+      funMode: store.getFunMode(),
+    });
+
+    expect(casualStats.might).toBeCloseTo(stdStats.might * 2.0, 4);
+    expect(casualStats.moveSpeed).toBeCloseTo(stdStats.moveSpeed * 1.35, 4);
+    expect(casualStats.growth).toBeCloseTo(stdStats.growth * 2.0, 4);
+    expect(casualStats.revivals).toBe(stdStats.revivals + 1);
+    expect(casualStats.amount).toBe(stdStats.amount + 1);
+
+    // Custom slider tweak promotes to 'custom', clamped safely, and survives JSON export/import
+    store.updateCustomFunMode({ mightMultiplier: 4.5, damageTakenMultiplier: 0.5 });
+    expect(store.getFunMode().preset).toBe('custom');
+    expect(store.getFunMode().mightMultiplier).toBe(4.5);
+    expect(store.getFunMode().damageTakenMultiplier).toBe(0.5);
+
+    const exported = store.exportJson();
+    const restored = new SaveStore(CATALOG, new MemoryStorage());
+    const importRes = restored.importJson(exported);
+    expect(importRes.ok).toBe(true);
+    expect(restored.getFunMode().preset).toBe('custom');
+    expect(restored.getFunMode().mightMultiplier).toBe(4.5);
+
+    // Contact damage reduction in casual mode (0.65x) vs standard (1.0x)
+    const simStd = new GameSimulation(
+      makeRunConfig({ funMode: FUN_MODE_PRESETS.standard }),
+      createDefaultSaveState(CATALOG),
+      CATALOG,
+    );
+    const simCasual = new GameSimulation(
+      makeRunConfig({ funMode: FUN_MODE_PRESETS.casual }),
+      createDefaultSaveState(CATALOG),
+      CATALOG,
+    );
+    simStd.enemySystem.spawnEnemy('boss_giant_bat', 0, 0, { damageScale: 1 });
+    simCasual.enemySystem.spawnEnemy('boss_giant_bat', 0, 0, { damageScale: 1 });
+    simStd.step(0, 0, FIXED_DT);
+    simCasual.step(0, 0, FIXED_DT);
+    const dmgStd = simStd.stats.maxHp - simStd.hp;
+    const dmgCasual = simCasual.stats.maxHp - simCasual.hp;
+    expect(dmgStd).toBeGreaterThan(0);
+    expect(dmgCasual).toBeLessThan(dmgStd);
+    expect(simCasual.getRenderFrame().hud.funMode?.preset).toBe('casual');
   });
 });
 

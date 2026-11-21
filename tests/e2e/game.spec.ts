@@ -329,6 +329,17 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await expect(page.getByTestId('screen-stage-select')).toBeVisible();
     await assertAllImagesLoaded(page, 'Stage Select');
 
+    // Verify Fun/Casual/Musou mode selector & custom slider drawer, then keep standard for E2E flow
+    await expect(page.getByTestId('fun-mode-panel')).toBeVisible();
+    await expect(page.getByTestId('btn-fun-standard')).toHaveClass(/active/);
+    await page.getByTestId('btn-fun-casual').click();
+    await expect(page.getByTestId('btn-fun-casual')).toHaveClass(/active/);
+    await page.getByTestId('btn-fun-customize').click();
+    await expect(page.getByTestId('fun-sliders-drawer')).toBeVisible();
+    await page.getByTestId('btn-fun-standard').click();
+    await expect(page.getByTestId('btn-fun-standard')).toHaveClass(/active/);
+    await page.getByTestId('btn-fun-customize').click();
+
     // Enable Hurry for crisp fast combat pacing during live E2E
     await page.getByTestId('toggle-hurry').click();
     await shot(page, '08-stage-select.png');
@@ -432,9 +443,12 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await assertNoInvalidText(page, 'Pause Modal');
     await shot(page, '11-pause-grimoire-map.png');
 
-    // Retire to Settlement & verify DPS breakdown table
+    // Retire to Settlement & verify DPS breakdown table + Casual Mode nudge banner
     await page.getByTestId('btn-pause-retire').click();
     await expect(page.getByTestId('modal-settlement')).toBeVisible();
+    await expect(page.getByTestId('settlement-casual-nudge')).toBeVisible();
+    await expect(page.getByTestId('btn-settlement-retry-casual')).toBeVisible();
+    await expect(page.getByTestId('btn-settlement-share')).toBeVisible();
     await expect(page.getByTestId('settlement-dps-table')).toBeVisible();
     const firstRowCells = page.locator(
       '[data-testid="settlement-dps-table"] tbody tr:first-child td',

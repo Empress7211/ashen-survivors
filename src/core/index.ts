@@ -1,9 +1,11 @@
 export { SeededRng } from './Rng.ts';
 export { SpatialHashGrid } from './SpatialHashGrid.ts';
 export {
+  FUN_MODE_PRESETS,
   MAX_PASSIVE_SLOTS,
   MAX_WEAPON_SLOTS,
   calculatePlayerStats,
+  formatFunModeBadge,
   type StatCalculationInput,
 } from './StatCalculator.ts';
 export {

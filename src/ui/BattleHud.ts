@@ -7,7 +7,11 @@ import type {
   RenderFrameState,
   WeaponSlotSnapshot,
 } from '../contracts/index.ts';
-import { MAX_PASSIVE_SLOTS, MAX_WEAPON_SLOTS } from '../core/index.ts';
+import {
+  MAX_PASSIVE_SLOTS,
+  MAX_WEAPON_SLOTS,
+  formatFunModeBadge,
+} from '../core/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatClock, formatInt, iconUrl } from '../app/formatters.ts';
 
@@ -666,10 +670,17 @@ export class BattleHudView {
   }
 
   private syncModeTags(hud: HudSnapshot): void {
-    const key = `${hud.hyper}-${hud.hurry}-${hud.endless}-${hud.endlessCycle}`;
+    const funKey = hud.funMode?.preset ?? 'standard';
+    const key = `${hud.hyper}-${hud.hurry}-${hud.endless}-${hud.endlessCycle}-${funKey}`;
     if (key === this.lastModeKey) return;
     this.lastModeKey = key;
     this.modeTagsEl.replaceChildren();
+    if (hud.funMode && hud.funMode.preset !== 'standard') {
+      const badge = formatFunModeBadge(hud.funMode);
+      this.modeTagsEl.appendChild(
+        el('span', { className: `tag-badge tag-badge-${badge.tone}`, text: badge.label }),
+      );
+    }
     if (hud.hyper) this.modeTagsEl.appendChild(el('span', { className: 'tag-badge tag-badge-crimson', text: 'HYPER' }));
     if (hud.hurry) this.modeTagsEl.appendChild(el('span', { className: 'tag-badge tag-badge-gold', text: 'HURRY' }));
     if (hud.endless) {

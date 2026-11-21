@@ -644,6 +644,114 @@
   gap: 8px;
 }
 
+.fun-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(212, 175, 55, 0.38);
+  background: linear-gradient(180deg, rgba(28, 22, 42, 0.88), rgba(16, 13, 24, 0.94));
+}
+
+.fun-mode-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fun-mode-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fun-mode-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.fun-mode-tip {
+  font-size: 11px;
+  color: var(--emerald-bright);
+}
+
+.fun-customize-btn {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.fun-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fun-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(14, 12, 22, 0.88);
+  text-align: left;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
+}
+
+.fun-preset-card:hover {
+  border-color: var(--gold);
+  transform: translateY(-1px);
+}
+
+.fun-preset-card.active {
+  border-color: var(--gold-bright);
+  background: rgba(44, 34, 16, 0.62);
+  box-shadow: 0 0 14px rgba(212, 175, 55, 0.24);
+}
+
+.fun-sliders-drawer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  background: rgba(10, 8, 16, 0.82);
+}
+
+.fun-slider-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.casual-nudge-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(244, 216, 125, 0.55);
+  background: linear-gradient(90deg, rgba(46, 32, 14, 0.72), rgba(26, 20, 38, 0.88));
+}
+
+@media (max-width: 720px) {
+  .fun-preset-grid,
+  .fun-sliders-drawer {
+    grid-template-columns: 1fr;
+  }
+}
+
 .toggle-chip {
   display: flex;
   flex-direction: column;

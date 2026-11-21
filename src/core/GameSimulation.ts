@@ -218,6 +218,7 @@ export class GameSimulation {
         hurry: config.hurry,
         endless: config.endless,
         endlessCycle: 0,
+        funMode: config.funMode,
         hasMilkyWayMap: false,
         mapMarkers: undefined,
       },
@@ -655,6 +656,7 @@ export class GameSimulation {
       revivalsConsumed: this.progression.totalRevivalsConsumed,
       divineBloodlineBonusMaxHp: this.progression.divineBloodlineBonusMaxHp,
       soulEaterMightBonus: this.progression.soulEaterMightBonus,
+      funMode: this.config.funMode,
     });
   }
 
@@ -735,7 +737,11 @@ export class GameSimulation {
       return;
     }
 
-    const taken = Math.max(1, Math.round(maxContactDmg - this.stats.armor));
+    const dmgMult = this.config.funMode?.damageTakenMultiplier ?? 1;
+    const taken = Math.max(
+      1,
+      Math.round(Math.max(1, maxContactDmg - this.stats.armor) * dmgMult),
+    );
     this.hp = Math.max(0, this.hp - taken);
     this.invulnTimer = 0.25;
     this.hitFlashTimer = 0.12;
@@ -1489,6 +1495,7 @@ export class GameSimulation {
     hud.hurry = this.config.hurry;
     hud.endless = this.config.endless;
     hud.endlessCycle = this.waveDirector.endlessCycle;
+    hud.funMode = this.config.funMode;
     const hasMilkyWayMap = this.progression.collectedRelics.has('relic_map');
     hud.hasMilkyWayMap = hasMilkyWayMap;
     if (hasMilkyWayMap) {
