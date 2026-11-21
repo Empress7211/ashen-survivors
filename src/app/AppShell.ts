@@ -38,6 +38,32 @@ export class AppShell {
 
     this.bindGlobalEvents();
     this.renderScreen('title');
+    this.scheduleAssetPrefetch();
+  }
+
+  private scheduleAssetPrefetch(): void {
+    const warm = (): void => {
+      const urls = [
+        '/assets/atlases/entities.png',
+        '/assets/atlases/entities.json',
+        '/assets/atlases/vfx.png',
+        '/assets/atlases/vfx.json',
+        '/assets/atlases/world.png',
+        '/assets/atlases/world.json',
+        '/assets/stages/mad_forest.jpg',
+      ];
+      for (const url of urls) {
+        void fetch(url).catch(() => undefined);
+      }
+    };
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    if (typeof w.requestIdleCallback === 'function') {
+      w.requestIdleCallback(warm, { timeout: 1200 });
+    } else {
+      window.setTimeout(warm, 200);
+    }
   }
 
   private bindGlobalEvents(): void {

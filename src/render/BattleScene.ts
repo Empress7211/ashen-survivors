@@ -6,6 +6,7 @@ import {
   TEX_VIGNETTE,
   createProceduralTextures,
   queueCorePreload,
+  queueLazyPassiveIcons,
 } from './RenderAssets';
 import { FloatingTextPool } from './SpritePool';
 import { VfxRenderer } from './VfxRenderer';
@@ -22,6 +23,7 @@ interface LocalPlayerDmgText {
 }
 
 export interface BattleSceneCallbacks {
+  onLoadProgress?: (progress: number) => void;
   onSceneReady: () => void;
   onSceneError: (error: unknown) => void;
 }
@@ -70,12 +72,14 @@ export class BattleScene extends Phaser.Scene {
   }
 
   preload(): void {
+    this.load.on(Phaser.Loader.Events.PROGRESS, this.handleLoadProgress, this);
     this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, this.handleLoadError, this);
     queueCorePreload(this.load, this.initialStageId);
   }
 
   create(): void {
     if (this.destroyed) return;
+    this.load.off(Phaser.Loader.Events.PROGRESS, this.handleLoadProgress, this);
     this.load.off(Phaser.Loader.Events.FILE_LOAD_ERROR, this.handleLoadError, this);
 
     createProceduralTextures(this.textures);
@@ -86,7 +90,7 @@ export class BattleScene extends Phaser.Scene {
     this.entityRenderer = new EntityRenderer(this);
     this.vfxRenderer = new VfxRenderer(this, this.viewW, this.viewH);
     this.indicatorRenderer = new IndicatorRenderer(this);
-    this.floatingTextPool = new FloatingTextPool(this, 20, 72);
+    this.floatingTextPool = new FloatingTextPool(this, 20, 220);
 
     this.vignette = this.add.image(
       this.viewW * 0.5,
@@ -96,7 +100,7 @@ export class BattleScene extends Phaser.Scene {
     this.vignette.setOrigin(0.5, 0.5);
     this.vignette.setScrollFactor(0);
     this.vignette.setDepth(25);
-    this.vignette.setAlpha(0.72);
+    this.vignette.setAlpha(0.38);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
     this.events.once(Phaser.Scenes.Events.DESTROY, this.cleanup, this);
@@ -104,6 +108,9 @@ export class BattleScene extends Phaser.Scene {
     this.sceneReady = true;
     this.handleResize(this.viewW, this.viewH);
     this.callbacks.onSceneReady();
+
+    // Non-blocking lazy preload of stage passive icons in background
+    queueLazyPassiveIcons(this.load, this.textures);
   }
 
   setDisplayOptions(options: BattleRendererDisplayOptions): void {
@@ -293,6 +300,10 @@ export class BattleScene extends Phaser.Scene {
     pool.endFrame();
   }
 
+  private handleLoadProgress = (value: number): void => {
+    this.callbacks.onLoadProgress?.(value);
+  };
+
   private handleLoadError(file: Phaser.Loader.File): void {
     this.callbacks.onSceneError(
       new Error(`Failed to load render asset: ${file.key} (${String(file.url)})`),
@@ -303,6 +314,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.destroyed) return;
     this.destroyed = true;
     this.sceneReady = false;
+    this.load.off(Phaser.Loader.Events.PROGRESS, this.handleLoadProgress, this);
     this.load.off(Phaser.Loader.Events.FILE_LOAD_ERROR, this.handleLoadError, this);
 
     this.worldRenderer?.destroy();

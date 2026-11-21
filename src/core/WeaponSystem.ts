@@ -611,62 +611,179 @@ export class WeaponSystem {
 
   getRenderZones(): RenderZoneState[] {
     const out: RenderZoneState[] = [];
-    for (let i = 0; i < this.zones.length; i++) {
-      const z = this.zones[i]!;
-      out.push({
-        uid: z.uid,
-        kind: z.kind,
-        weaponId: z.weaponId,
-        vfxKey: z.vfxKey,
-        x: z.x,
-        y: z.y,
-        endX: z.endX,
-        endY: z.endY,
-        radius: z.radius,
-        rotation: z.rotation,
-        progress: z.maxLife > 0 ? 1 - z.life / z.maxLife : 1,
-        alpha: z.alpha,
-        flipX: z.flipX,
-        tint: z.tint,
-      });
-    }
-    // Include orbiters as renderable projectiles so renderer renders Bible/Vespers tomes cleanly!
+    this.fillRenderZones(out);
     return out;
+  }
+
+  fillRenderZones(out: RenderZoneState[]): void {
+    const count = this.zones.length;
+    for (let i = 0; i < count; i++) {
+      const z = this.zones[i]!;
+      const progress = z.maxLife > 0 ? 1 - z.life / z.maxLife : 1;
+      let slot = out[i];
+      if (!slot) {
+        slot = {
+          uid: z.uid,
+          kind: z.kind,
+          weaponId: z.weaponId,
+          vfxKey: z.vfxKey,
+          x: z.x,
+          y: z.y,
+          endX: z.endX,
+          endY: z.endY,
+          radius: z.radius,
+          rotation: z.rotation,
+          progress,
+          alpha: z.alpha,
+          flipX: z.flipX,
+          tint: z.tint,
+        };
+        out.push(slot);
+      } else {
+        slot.uid = z.uid;
+        slot.kind = z.kind;
+        slot.weaponId = z.weaponId;
+        slot.vfxKey = z.vfxKey;
+        slot.x = z.x;
+        slot.y = z.y;
+        slot.endX = z.endX;
+        slot.endY = z.endY;
+        slot.radius = z.radius;
+        slot.rotation = z.rotation;
+        slot.progress = progress;
+        slot.alpha = z.alpha;
+        slot.flipX = z.flipX;
+        slot.tint = z.tint;
+      }
+    }
+    out.length = count;
   }
 
   getRenderProjectilesAndOrbiters(playerX: number, playerY: number): RenderProjectileState[] {
-    const out = this.getRenderProjectiles();
-    for (let i = 0; i < this.orbiters.length; i++) {
-      const o = this.orbiters[i]!;
-      out.push({
-        uid: o.uid,
-        weaponId: o.weaponId,
-        vfxKey: o.vfxKey,
-        x: playerX + Math.cos(o.angle) * o.orbitRadius,
-        y: playerY + Math.sin(o.angle) * o.orbitRadius,
-        vx: 0,
-        vy: 0,
-        rotation: o.angle + Math.PI * 0.5,
-        scale: Math.max(0.85, o.hitRadius / 22),
-        alpha: 1,
-      });
-    }
+    const out: RenderProjectileState[] = [];
+    this.fillRenderProjectilesAndOrbiters(playerX, playerY, out);
     return out;
   }
 
+  fillRenderProjectilesAndOrbiters(
+    playerX: number,
+    playerY: number,
+    out: RenderProjectileState[],
+  ): void {
+    let cursor = 0;
+    const pLen = this.projectiles.length;
+    for (let i = 0; i < pLen; i++) {
+      const p = this.projectiles[i]!;
+      let slot = out[cursor];
+      if (!slot) {
+        slot = {
+          uid: p.uid,
+          weaponId: p.weaponId,
+          vfxKey: p.vfxKey,
+          x: p.x,
+          y: p.y,
+          vx: p.vx,
+          vy: p.vy,
+          rotation: p.rotation,
+          scale: p.scale,
+          alpha: p.alpha,
+        };
+        out.push(slot);
+      } else {
+        slot.uid = p.uid;
+        slot.weaponId = p.weaponId;
+        slot.vfxKey = p.vfxKey;
+        slot.x = p.x;
+        slot.y = p.y;
+        slot.vx = p.vx;
+        slot.vy = p.vy;
+        slot.rotation = p.rotation;
+        slot.scale = p.scale;
+        slot.alpha = p.alpha;
+      }
+      cursor++;
+    }
+    const oLen = this.orbiters.length;
+    for (let i = 0; i < oLen; i++) {
+      const o = this.orbiters[i]!;
+      const ox = playerX + Math.cos(o.angle) * o.orbitRadius;
+      const oy = playerY + Math.sin(o.angle) * o.orbitRadius;
+      const rot = o.angle + Math.PI * 0.5;
+      const scale = Math.max(0.85, o.hitRadius / 22);
+      let slot = out[cursor];
+      if (!slot) {
+        slot = {
+          uid: o.uid,
+          weaponId: o.weaponId,
+          vfxKey: o.vfxKey,
+          x: ox,
+          y: oy,
+          vx: 0,
+          vy: 0,
+          rotation: rot,
+          scale,
+          alpha: 1,
+        };
+        out.push(slot);
+      } else {
+        slot.uid = o.uid;
+        slot.weaponId = o.weaponId;
+        slot.vfxKey = o.vfxKey;
+        slot.x = ox;
+        slot.y = oy;
+        slot.vx = 0;
+        slot.vy = 0;
+        slot.rotation = rot;
+        slot.scale = scale;
+        slot.alpha = 1;
+      }
+      cursor++;
+    }
+    out.length = cursor;
+  }
+
   getRenderBeams(playerX: number, playerY: number): RenderBeamState[] {
-    return this.beams.map((b) => ({
-      uid: b.uid,
-      weaponId: b.weaponId,
-      vfxKey: b.vfxKey,
-      x1: playerX,
-      y1: playerY,
-      x2: playerX + Math.cos(b.angle) * b.length,
-      y2: playerY + Math.sin(b.angle) * b.length,
-      width: b.width,
-      alpha: Math.min(1, b.life * 4),
-      color: b.color,
-    }));
+    const out: RenderBeamState[] = [];
+    this.fillRenderBeams(playerX, playerY, out);
+    return out;
+  }
+
+  fillRenderBeams(playerX: number, playerY: number, out: RenderBeamState[]): void {
+    const count = this.beams.length;
+    for (let i = 0; i < count; i++) {
+      const b = this.beams[i]!;
+      const x2 = playerX + Math.cos(b.angle) * b.length;
+      const y2 = playerY + Math.sin(b.angle) * b.length;
+      const alpha = Math.min(1, b.life * 4);
+      let slot = out[i];
+      if (!slot) {
+        slot = {
+          uid: b.uid,
+          weaponId: b.weaponId,
+          vfxKey: b.vfxKey,
+          x1: playerX,
+          y1: playerY,
+          x2,
+          y2,
+          width: b.width,
+          alpha,
+          color: b.color,
+        };
+        out.push(slot);
+      } else {
+        slot.uid = b.uid;
+        slot.weaponId = b.weaponId;
+        slot.vfxKey = b.vfxKey;
+        slot.x1 = playerX;
+        slot.y1 = playerY;
+        slot.x2 = x2;
+        slot.y2 = y2;
+        slot.width = b.width;
+        slot.alpha = alpha;
+        slot.color = b.color;
+      }
+    }
+    out.length = count;
   }
 
   private syncDamageHistory(slot: WeaponSlotState): void {

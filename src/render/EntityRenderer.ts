@@ -62,10 +62,10 @@ export class EntityRenderer {
     // Regular Enemies (depth 12 — single WebGL batch!)
     this.enemyPool = new ImagePool(scene, ATLAS_ENTITIES, 12, 320);
 
-    // Player (depth 13)
+    // Player (depth 13) — scaled 4/3x for 96px entity frames (matches 128px @ 0.52)
     this.playerSprite = scene.add.image(0, 0, ATLAS_ENTITIES);
     this.playerSprite.setOrigin(0.5, 0.76);
-    this.playerSprite.setScale(0.52);
+    this.playerSprite.setScale(0.693);
     this.playerSprite.setDepth(13);
     this.playerSprite.setVisible(false);
 
@@ -256,8 +256,15 @@ export class EntityRenderer {
       }
     }
 
-    // 3. Regular Enemies + Bosses / Reapers
+    // 3. Regular Enemies + Bosses / Reapers (Horde LOD shadows for 1,200+ enemies)
     const enemies = state.enemies;
+    const maxEnemyShadows = highQuality
+      ? enemies.length > 420
+        ? 180
+        : 420
+      : 120;
+    let enemyShadowsDrawn = 0;
+
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i]!;
       const margin = e.isBoss || e.isReaper ? 140 : 40;
@@ -273,19 +280,24 @@ export class EntityRenderer {
       const frame = `${e.enemyId}_${e.animFrame}`;
       const isHeavy = e.isBoss || e.isReaper;
 
-      const shadow = this.shadowPool.acquire();
-      shadow.setPosition(e.x, e.y + (isHeavy ? 18 : 11));
-      const shadowScale = Math.max(0.42, e.radius / 22);
-      shadow.setScale(shadowScale, shadowScale * 0.72);
-      shadow.setAlpha(isHeavy ? 0.85 : 0.68);
+      if (isHeavy || enemyShadowsDrawn < maxEnemyShadows) {
+        enemyShadowsDrawn++;
+        const shadow = this.shadowPool.acquire();
+        shadow.setPosition(e.x, e.y + (isHeavy ? 18 : 11));
+        const shadowScale = Math.max(0.42, e.radius / 22);
+        shadow.setScale(shadowScale, shadowScale * 0.72);
+        shadow.setAlpha(isHeavy ? 0.85 : 0.68);
+      }
 
       const sprite = isHeavy ? this.bossPool.acquire() : this.enemyPool.acquire();
-      sprite.setTexture(ATLAS_ENTITIES, frame);
+      if (sprite.frame.name !== frame) {
+        sprite.setFrame(frame);
+      }
       sprite.setOrigin(0.5, 0.78);
       sprite.setPosition(e.x, e.y + (isHeavy ? 18 : 11));
-      sprite.setScale((isHeavy ? 0.4 : 0.48) * e.scale);
+      sprite.setScale((isHeavy ? 0.533 : 0.64) * e.scale);
       sprite.setFlipX(e.facingX < 0);
-      sprite.setAlpha(1);
+      if (sprite.alpha !== 1) sprite.setAlpha(1);
 
       if (e.hitFlash) {
         sprite.setTintFill(0xffffff);
@@ -293,7 +305,7 @@ export class EntityRenderer {
         sprite.setTint(0x66e8ff);
       } else if (e.tint !== undefined) {
         sprite.setTint(e.tint);
-      } else {
+      } else if (sprite.isTinted) {
         sprite.clearTint();
       }
 
@@ -373,7 +385,9 @@ export class EntityRenderer {
     shadow.setAlpha(0.78);
 
     const frame = `${p.heroId}_${p.animFrame}`;
-    this.playerSprite.setTexture(ATLAS_ENTITIES, frame);
+    if (this.playerSprite.frame.name !== frame) {
+      this.playerSprite.setFrame(frame);
+    }
     this.playerSprite.setPosition(p.x, p.y + 13);
     this.playerSprite.setFlipX(p.facingX < 0);
     if (!this.playerSprite.visible) {

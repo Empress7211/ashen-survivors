@@ -39,10 +39,12 @@
 
 .hud-xp-fill {
   height: 100%;
-  width: 0%;
+  width: 100%;
   background: linear-gradient(90deg, #1b65b8 0%, #37a9f5 55%, #8ce2ff 100%);
   box-shadow: 0 0 14px rgba(79, 195, 247, 0.75);
-  transition: width 0.08s linear;
+  transform-origin: left center;
+  transform: scaleX(0);
+  will-change: transform;
 }
 
 .hud-lv-badge {
@@ -195,9 +197,12 @@
 }
 
 .hud-boss-fill {
+  width: 100%;
   height: 100%;
   background: linear-gradient(90deg, #8e111d 0%, #e63946 65%, #ff7a85 100%);
-  transition: width 0.08s linear;
+  transform-origin: left center;
+  transform: scaleX(1);
+  will-change: transform;
 }
 
 .hud-right-column {
@@ -291,8 +296,81 @@
 }
 
 .hud-hp-mini-fill {
+  width: 100%;
   height: 100%;
   background: linear-gradient(90deg, #9d1724, #eb4655);
+  transform-origin: left center;
+  transform: scaleX(1);
+  will-change: transform;
+}
+
+.hud-fps-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(11, 9, 16, 0.72);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-silver);
+}
+
+/* Battle Loading Overlay */
+.battle-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(22, 14, 30, 0.94), rgba(6, 5, 10, 0.98));
+  padding: 24px;
+}
+
+.battle-loading-card {
+  width: min(440px, 100%);
+  padding: 26px 28px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--gold-border-strong);
+  background: linear-gradient(180deg, rgba(26, 21, 36, 0.96), rgba(13, 10, 18, 0.98));
+  box-shadow: var(--shadow-modal);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.battle-loading-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold-bright);
+  letter-spacing: 0.06em;
+}
+
+.battle-loading-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-silver);
+}
+
+.battle-loading-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(212, 175, 55, 0.28);
+  overflow: hidden;
+}
+
+.battle-loading-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--crimson), var(--gold-bright));
+  transform-origin: left center;
+  transform: scaleX(0);
+  will-change: transform;
 }
 
 /* Mid-run Achievement Toast */

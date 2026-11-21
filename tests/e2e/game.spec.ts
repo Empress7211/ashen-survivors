@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const ARTIFACT_DIR =
   '/Users/Arthur/.gemini/antigravity/brain/fbe84a86-5bd3-41af-9914-cafaae1d0550';
@@ -89,6 +89,47 @@ async function shot(page: Page, filename: string): Promise<void> {
     path: `${ARTIFACT_DIR}/${filename}`,
     fullPage: false,
   });
+}
+
+async function assertCanvasNonBlack(
+  page: Page,
+  canvas: Locator,
+  label: string,
+): Promise<void> {
+  const pngBytes = await canvas.screenshot();
+  const base64 = pngBytes.toString('base64');
+  const stats = await page.evaluate(async (b64) => {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const bmp = await createImageBitmap(new Blob([arr], { type: 'image/png' }));
+    const off = document.createElement('canvas');
+    off.width = bmp.width;
+    off.height = bmp.height;
+    const ctx = off.getContext('2d')!;
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close();
+    const { data, width, height } = ctx.getImageData(0, 0, off.width, off.height);
+    let nonBlack = 0;
+    let total = 0;
+    let lumSum = 0;
+    for (let y = 90; y < height - 40; y += 10) {
+      for (let x = 40; x < width - 40; x += 10) {
+        const idx = (y * width + x) * 4;
+        const lum = data[idx]! * 0.299 + data[idx + 1]! * 0.587 + data[idx + 2]! * 0.114;
+        lumSum += lum;
+        total++;
+        if (lum > 18) nonBlack++;
+      }
+    }
+    return {
+      meanLum: lumSum / Math.max(1, total),
+      nonBlackRatio: nonBlack / Math.max(1, total),
+    };
+  }, base64);
+
+  expect(stats.meanLum, `canvas mean luminance too dark on ${label}`).toBeGreaterThan(18);
+  expect(stats.nonBlackRatio, `canvas appears blank/black on ${label}`).toBeGreaterThan(0.5);
 }
 
 test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
@@ -220,10 +261,12 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     expect(box!.width).toBeGreaterThanOrEqual(1200);
     expect(box!.height).toBeGreaterThanOrEqual(760);
 
-    // Wait for clock to tick and enemies to spawn
+    // Wait for loading overlay to finish, clock to tick, and canvas to paint non-black battle scene
+    await expect(page.getByTestId('battle-loading')).toBeHidden({ timeout: 10_000 });
     await expect
       .poll(async () => page.getByTestId('hud-timer').innerText(), { timeout: 10_000 })
       .not.toBe('00:00');
+    await assertCanvasNonBlack(page, canvas, 'Mad Forest Live Battle');
 
     // Drive real WASD movement to engage enemies, kill them, and magnetize XP gems to Lv.2
     const keys = ['KeyD', 'KeyW', 'KeyA', 'KeyS'];

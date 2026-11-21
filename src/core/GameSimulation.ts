@@ -9,11 +9,16 @@ import type {
   PauseMapMarker,
   PauseSnapshot,
   PickupId,
+  RelicId,
+  RenderBeamState,
   RenderEnemyState,
   RenderFloatingText,
   RenderFrameState,
+  RenderPickupState,
   RenderPlayerState,
+  RenderProjectileState,
   RenderPropState,
+  RenderZoneState,
   ReviveModalState,
   RunPhase,
   RunStartConfig,
@@ -89,6 +94,21 @@ export class GameSimulation {
   private soulEaterHealAccum = 0;
   private causeOfDeath?: string;
   private settlementModal: SettlementModalState | null = null;
+  private cachedRelicsList: RelicId[] = [];
+  private cachedRelicCount = -1;
+
+  // Reusable zero-allocation RenderFrameState buffers
+  private readonly frameEnemies: RenderEnemyState[] = [];
+  private readonly frameProjectiles: RenderProjectileState[] = [];
+  private readonly frameZones: RenderZoneState[] = [];
+  private readonly frameBeams: RenderBeamState[] = [];
+  private readonly framePickups: RenderPickupState[] = [];
+  private readonly frameProps: RenderPropState[] = [];
+  private readonly frameFloatingTexts: RenderFloatingText[] = [];
+  private readonly frameAudioCues: AudioCue[] = [];
+  private readonly framePlayer: RenderPlayerState;
+  private readonly frameScreenFlash = { color: 0, alpha: 0 };
+  private readonly frameState: RenderFrameState;
 
   constructor(
     config: RunStartConfig,
@@ -127,12 +147,80 @@ export class GameSimulation {
     this.stats = this.recomputeStats();
     this.hp = this.stats.maxHp;
 
+    this.framePlayer = {
+      heroId: config.heroId,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      facingX: 1,
+      facingY: 0,
+      hp: this.hp,
+      maxHp: this.stats.maxHp,
+      invulnTimer: 0,
+      hitFlash: false,
+      laurelShieldCharges: 0,
+      animFrame: 0,
+      isMoving: false,
+      garlicRadius: 0,
+      soulEaterActive: false,
+    };
+
+    const util = this.progression.getRemainingUtility(this.stats);
+    this.frameState = {
+      phase: this.phase,
+      stageId: config.stageId,
+      corridorBounds: stageDef.corridorBounds,
+      tick: 0,
+      player: this.framePlayer,
+      enemies: this.frameEnemies,
+      projectiles: this.frameProjectiles,
+      zones: this.frameZones,
+      beams: this.frameBeams,
+      pickups: this.framePickups,
+      props: this.frameProps,
+      floatingTexts: this.frameFloatingTexts,
+      screenFlash: null,
+      screenShake: 0,
+      hud: {
+        elapsedSeconds: 0,
+        stageDurationSeconds: stageDef.durationSeconds,
+        level: 1,
+        xp: 0,
+        xpToNextLevel: 5,
+        hp: this.hp,
+        maxHp: this.stats.maxHp,
+        kills: 0,
+        goldEarned: 0,
+        weapons: [],
+        passives: [],
+        arcanas: [],
+        rerollsRemaining: util.rerolls,
+        skipsRemaining: util.skips,
+        banishesRemaining: util.banishes,
+        revivalsRemaining: util.revivals,
+        activeEnemyCount: 0,
+        stageId: config.stageId,
+        hyper: config.hyper,
+        hurry: config.hurry,
+        endless: config.endless,
+        endlessCycle: 0,
+      },
+      bossBar: null,
+      draftModal: null,
+      chestModal: null,
+      reviveModal: null,
+      settlementModal: null,
+      pauseSnapshot: null,
+      audioCues: this.frameAudioCues,
+    };
+
     // Spawn stage ground passives/relics and initial prop ring immediately at tick 0
     this.waveDirector.ensureInitialWorldSetup(
       this.playerX,
       this.playerY,
       this.enemySystem,
-      Array.from(this.progression.collectedRelics),
+      this.getCollectedRelicsList(),
       {
         onAudioCue: (cue) => this.pushAudioCue(cue),
         onSpawnPickup: (kind, itemId, x, y, opts) => {
@@ -152,15 +240,27 @@ export class GameSimulation {
       const draft = this.progression.buildArcanaDraft(this.stats, this.rng);
       if (draft) {
         this.phase = 'arcana_select';
+        this.frameState.phase = this.phase;
       }
     }
   }
 
+  private getCollectedRelicsList(): RelicId[] {
+    if (this.progression.collectedRelics.size !== this.cachedRelicCount) {
+      this.cachedRelicCount = this.progression.collectedRelics.size;
+      this.cachedRelicsList = Array.from(this.progression.collectedRelics);
+    }
+    return this.cachedRelicsList;
+  }
+
   step(inputX = 0, inputY = 0, dt = FIXED_DT): RenderFrameState {
+    this.stepTick(inputX, inputY, dt);
+    return this.getRenderFrame();
+  }
+
+  stepTick(inputX = 0, inputY = 0, dt = FIXED_DT): RunPhase {
     if (this.phase !== 'playing') {
-      const state = this.buildRenderFrameState();
-      this.audioCueQueue.length = 0;
-      return state;
+      return this.phase;
     }
 
     this.tick += 1;
@@ -209,7 +309,7 @@ export class GameSimulation {
       this.playerY,
       this.enemySystem,
       this.rng,
-      Array.from(this.progression.collectedRelics),
+      this.getCollectedRelicsList(),
       {
         onAudioCue: (cue) => this.pushAudioCue(cue),
         onSpawnPickup: (kind, itemId, x, y, opts) => {
@@ -277,7 +377,7 @@ export class GameSimulation {
       }
     }
 
-    // 9. Live achievement evaluation (every 15 ticks or on events)
+    // 9. Live achievement evaluation (every 15 ticks)
     if (this.tick % 15 === 0) {
       this.progression.checkAchievementsLive(
         this.waveDirector.stageClockSeconds,
@@ -288,6 +388,10 @@ export class GameSimulation {
       );
     }
 
+    return this.phase;
+  }
+
+  getRenderFrame(): RenderFrameState {
     const frame = this.buildRenderFrameState();
     this.audioCueQueue.length = 0;
     return frame;
@@ -1161,72 +1265,186 @@ export class GameSimulation {
     const garlicInfo = this.weaponSystem.getGarlicRenderRadius(this.stats);
     const util = this.progression.getRemainingUtility(this.stats);
 
-    const player: RenderPlayerState = {
-      heroId: this.config.heroId,
-      x: this.playerX,
-      y: this.playerY,
-      vx: this.playerVx,
-      vy: this.playerVy,
-      facingX: this.facingX,
-      facingY: this.facingY,
-      hp: this.hp,
-      maxHp: this.stats.maxHp,
-      invulnTimer: this.invulnTimer,
-      hitFlash: this.hitFlashTimer > 0,
-      laurelShieldCharges: this.weaponSystem.getLaurelCharges(),
-      animFrame: this.playerAnimFrame,
-      isMoving: this.isMoving,
-      garlicRadius: garlicInfo.radius,
-      soulEaterActive: garlicInfo.soulEaterActive,
-    };
+    const player = this.framePlayer;
+    player.heroId = this.config.heroId;
+    player.x = this.playerX;
+    player.y = this.playerY;
+    player.vx = this.playerVx;
+    player.vy = this.playerVy;
+    player.facingX = this.facingX;
+    player.facingY = this.facingY;
+    player.hp = this.hp;
+    player.maxHp = this.stats.maxHp;
+    player.invulnTimer = this.invulnTimer;
+    player.hitFlash = this.hitFlashTimer > 0;
+    player.laurelShieldCharges = this.weaponSystem.getLaurelCharges();
+    player.animFrame = this.playerAnimFrame;
+    player.isMoving = this.isMoving;
+    player.garlicRadius = garlicInfo.radius;
+    player.soulEaterActive = garlicInfo.soulEaterActive;
 
-    const enemies: RenderEnemyState[] = this.enemySystem.enemies
-      .filter((e) => e.alive)
-      .map((e) => ({
-        uid: e.uid,
-        enemyId: e.enemyId,
-        x: e.x,
-        y: e.y,
-        facingX: e.facingX,
-        radius: e.radius,
-        scale: e.scale,
-        hp: e.hp,
-        maxHp: e.maxHp,
-        hitFlash: e.hitFlashTimer > 0,
-        frozen: e.freezeTimer > 0,
-        isBoss: e.isBoss,
-        isReaper: e.isReaper,
-        animFrame: e.animFrame,
-        tint: e.tint,
-      }));
+    const srcEnemies = this.enemySystem.enemies;
+    const dstEnemies = this.frameEnemies;
+    let enemyCursor = 0;
+    for (let i = 0; i < srcEnemies.length; i++) {
+      const e = srcEnemies[i]!;
+      if (!e.alive) continue;
+      let slot = dstEnemies[enemyCursor];
+      if (!slot) {
+        slot = {
+          uid: e.uid,
+          enemyId: e.enemyId,
+          x: e.x,
+          y: e.y,
+          facingX: e.facingX,
+          radius: e.radius,
+          scale: e.scale,
+          hp: e.hp,
+          maxHp: e.maxHp,
+          hitFlash: e.hitFlashTimer > 0,
+          frozen: e.freezeTimer > 0,
+          isBoss: e.isBoss,
+          isReaper: e.isReaper,
+          animFrame: e.animFrame,
+          tint: e.tint,
+        };
+        dstEnemies.push(slot);
+      } else {
+        slot.uid = e.uid;
+        slot.enemyId = e.enemyId;
+        slot.x = e.x;
+        slot.y = e.y;
+        slot.facingX = e.facingX;
+        slot.radius = e.radius;
+        slot.scale = e.scale;
+        slot.hp = e.hp;
+        slot.maxHp = e.maxHp;
+        slot.hitFlash = e.hitFlashTimer > 0;
+        slot.frozen = e.freezeTimer > 0;
+        slot.isBoss = e.isBoss;
+        slot.isReaper = e.isReaper;
+        slot.animFrame = e.animFrame;
+        slot.tint = e.tint;
+      }
+      enemyCursor++;
+    }
+    dstEnemies.length = enemyCursor;
 
-    const props: RenderPropState[] = this.enemySystem.props.map((p) => ({
-      uid: p.uid,
-      propId: p.propId,
-      x: p.x,
-      y: p.y,
-      broken: p.broken,
-      hitFlash: p.hitFlashTimer > 0,
-    }));
+    const srcProps = this.enemySystem.props;
+    const dstProps = this.frameProps;
+    const propCount = srcProps.length;
+    for (let i = 0; i < propCount; i++) {
+      const p = srcProps[i]!;
+      let slot = dstProps[i];
+      if (!slot) {
+        slot = {
+          uid: p.uid,
+          propId: p.propId,
+          x: p.x,
+          y: p.y,
+          broken: p.broken,
+          hitFlash: p.hitFlashTimer > 0,
+        };
+        dstProps.push(slot);
+      } else {
+        slot.uid = p.uid;
+        slot.propId = p.propId;
+        slot.x = p.x;
+        slot.y = p.y;
+        slot.broken = p.broken;
+        slot.hitFlash = p.hitFlashTimer > 0;
+      }
+    }
+    dstProps.length = propCount;
 
-    const floatingTexts: RenderFloatingText[] = this.floatingTexts.map((ft) => ({
-      uid: ft.uid,
-      x: ft.x,
-      y: ft.y,
-      text: ft.text,
-      kind: ft.kind,
-      progress: Math.min(1, ft.age / ft.maxAge),
-    }));
+    const srcTexts = this.floatingTexts;
+    const dstTexts = this.frameFloatingTexts;
+    const textCount = srcTexts.length;
+    for (let i = 0; i < textCount; i++) {
+      const ft = srcTexts[i]!;
+      const progress = Math.min(1, ft.age / ft.maxAge);
+      let slot = dstTexts[i];
+      if (!slot) {
+        slot = {
+          uid: ft.uid,
+          x: ft.x,
+          y: ft.y,
+          text: ft.text,
+          kind: ft.kind,
+          progress,
+        };
+        dstTexts.push(slot);
+      } else {
+        slot.uid = ft.uid;
+        slot.x = ft.x;
+        slot.y = ft.y;
+        slot.text = ft.text;
+        slot.kind = ft.kind;
+        slot.progress = progress;
+      }
+    }
+    dstTexts.length = textCount;
 
-    const draftModal: DraftModalState | null =
+    this.weaponSystem.fillRenderProjectilesAndOrbiters(
+      this.playerX,
+      this.playerY,
+      this.frameProjectiles,
+    );
+    this.weaponSystem.fillRenderZones(this.frameZones);
+    this.weaponSystem.fillRenderBeams(this.playerX, this.playerY, this.frameBeams);
+    this.progression.fillRenderPickups(this.framePickups);
+
+    this.frameAudioCues.length = 0;
+    for (let i = 0; i < this.audioCueQueue.length; i++) {
+      this.frameAudioCues.push(this.audioCueQueue[i]!);
+    }
+
+    let screenFlashOut: { color: number; alpha: number } | null = null;
+    if (this.screenFlash) {
+      this.frameScreenFlash.color = this.screenFlash.color;
+      this.frameScreenFlash.alpha = this.screenFlash.alpha;
+      screenFlashOut = this.frameScreenFlash;
+    }
+
+    const fs = this.frameState;
+    fs.phase = this.phase;
+    fs.stageId = this.config.stageId;
+    fs.corridorBounds = this.waveDirector.stage.corridorBounds;
+    fs.tick = this.tick;
+    fs.screenFlash = screenFlashOut;
+    fs.screenShake = this.screenShake;
+
+    const hud = fs.hud;
+    hud.elapsedSeconds = this.waveDirector.stageClockSeconds;
+    hud.stageDurationSeconds = this.waveDirector.stage.durationSeconds;
+    hud.level = this.progression.level;
+    hud.xp = this.progression.xp;
+    hud.xpToNextLevel = this.progression.xpToNextLevel;
+    hud.hp = this.hp;
+    hud.maxHp = this.stats.maxHp;
+    hud.kills = this.progression.kills;
+    hud.goldEarned = this.progression.goldEarned;
+    hud.weapons = this.weaponSystem.getSlotSnapshots();
+    hud.passives = this.progression.getPassiveSnapshots();
+    hud.arcanas = [...this.progression.arcanas];
+    hud.rerollsRemaining = util.rerolls;
+    hud.skipsRemaining = util.skips;
+    hud.banishesRemaining = util.banishes;
+    hud.revivalsRemaining = util.revivals;
+    hud.activeEnemyCount = enemyCursor;
+    hud.stageId = this.config.stageId;
+    hud.hyper = this.config.hyper;
+    hud.hurry = this.config.hurry;
+    hud.endless = this.config.endless;
+    hud.endlessCycle = this.waveDirector.endlessCycle;
+
+    fs.bossBar = this.findActiveBossBar();
+    fs.draftModal =
       this.phase === 'level_up' || this.phase === 'arcana_select'
         ? this.progression.activeDraft
         : null;
-
-    const chestModal: ChestModalState | null =
-      this.phase === 'chest' ? this.progression.activeChest : null;
-
-    const reviveModal: ReviveModalState | null =
+    fs.chestModal = this.phase === 'chest' ? this.progression.activeChest : null;
+    fs.reviveModal =
       this.phase === 'revive'
         ? {
             revivalsRemaining: util.revivals,
@@ -1234,57 +1452,10 @@ export class GameSimulation {
             elapsedSeconds: this.waveDirector.stageClockSeconds,
           }
         : null;
+    fs.settlementModal =
+      this.phase === 'settlement' ? this.settlementModal : null;
+    fs.pauseSnapshot = this.phase === 'paused' ? this.buildPauseSnapshot() : null;
 
-    return {
-      phase: this.phase,
-      stageId: this.config.stageId,
-      corridorBounds: this.waveDirector.stage.corridorBounds,
-      tick: this.tick,
-      player,
-      enemies,
-      projectiles: this.weaponSystem.getRenderProjectilesAndOrbiters(
-        this.playerX,
-        this.playerY,
-      ),
-      zones: this.weaponSystem.getRenderZones(),
-      beams: this.weaponSystem.getRenderBeams(this.playerX, this.playerY),
-      pickups: this.progression.getRenderPickups(),
-      props,
-      floatingTexts,
-      screenFlash: this.screenFlash ? { ...this.screenFlash } : null,
-      screenShake: this.screenShake,
-      hud: {
-        elapsedSeconds: this.waveDirector.stageClockSeconds,
-        stageDurationSeconds: this.waveDirector.stage.durationSeconds,
-        level: this.progression.level,
-        xp: this.progression.xp,
-        xpToNextLevel: this.progression.xpToNextLevel,
-        hp: this.hp,
-        maxHp: this.stats.maxHp,
-        kills: this.progression.kills,
-        goldEarned: this.progression.goldEarned,
-        weapons: this.weaponSystem.getSlotSnapshots(),
-        passives: this.progression.getPassiveSnapshots(),
-        arcanas: [...this.progression.arcanas],
-        rerollsRemaining: util.rerolls,
-        skipsRemaining: util.skips,
-        banishesRemaining: util.banishes,
-        revivalsRemaining: util.revivals,
-        activeEnemyCount: enemies.length,
-        stageId: this.config.stageId,
-        hyper: this.config.hyper,
-        hurry: this.config.hurry,
-        endless: this.config.endless,
-        endlessCycle: this.waveDirector.endlessCycle,
-      },
-      bossBar: this.findActiveBossBar(),
-      draftModal,
-      chestModal,
-      reviveModal,
-      settlementModal:
-        this.phase === 'settlement' ? this.settlementModal : null,
-      pauseSnapshot: this.phase === 'paused' ? this.buildPauseSnapshot() : null,
-      audioCues: [...this.audioCueQueue],
-    };
+    return fs;
   }
 }

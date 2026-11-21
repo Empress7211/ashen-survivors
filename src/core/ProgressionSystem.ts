@@ -1248,16 +1248,40 @@ export class ProgressionSystem {
   }
 
   getRenderPickups(): RenderPickupState[] {
-    return this.pickups.map((p) => ({
-      uid: p.uid,
-      kind: p.kind,
-      itemId: p.itemId,
-      x: p.x,
-      y: p.y,
-      bobPhase: p.bobPhase,
-      magnetized: p.magnetized,
-      chestOpen: p.chestOpen,
-    }));
+    const out: RenderPickupState[] = [];
+    this.fillRenderPickups(out);
+    return out;
+  }
+
+  fillRenderPickups(out: RenderPickupState[]): void {
+    const count = this.pickups.length;
+    for (let i = 0; i < count; i++) {
+      const p = this.pickups[i]!;
+      let slot = out[i];
+      if (!slot) {
+        slot = {
+          uid: p.uid,
+          kind: p.kind,
+          itemId: p.itemId,
+          x: p.x,
+          y: p.y,
+          bobPhase: p.bobPhase,
+          magnetized: p.magnetized,
+          chestOpen: p.chestOpen,
+        };
+        out.push(slot);
+      } else {
+        slot.uid = p.uid;
+        slot.kind = p.kind;
+        slot.itemId = p.itemId;
+        slot.x = p.x;
+        slot.y = p.y;
+        slot.bobPhase = p.bobPhase;
+        slot.magnetized = p.magnetized;
+        slot.chestOpen = p.chestOpen;
+      }
+    }
+    out.length = count;
   }
 
   private hasEvolvedFormOf(

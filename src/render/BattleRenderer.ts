@@ -12,11 +12,11 @@ export class BattleRenderer {
   private readonly game: Phaser.Game;
   private readonly readyPromise: Promise<void>;
 
-  private glContext: WebGL2RenderingContext | null = null;
   private canvasEl: HTMLCanvasElement | null = null;
   private resolveReady!: () => void;
   private sceneIsReady = false;
   private destroyed = false;
+  private paused = false;
   private pendingState: RenderFrameState | null = null;
   private width: number;
   private height: number;
@@ -49,6 +49,7 @@ export class BattleRenderer {
       this.height,
       display,
       {
+        onLoadProgress: options.onLoadProgress,
         onSceneReady: () => {
           if (this.destroyed) {
             this.resolveReady();
@@ -69,33 +70,17 @@ export class BattleRenderer {
       },
     );
 
-    // Prefer explicit WebGL2 context for Phaser 3.90 WebGL2 rendering; fall back to AUTO if unavailable
-    const probeCanvas = document.createElement('canvas');
-    probeCanvas.width = this.width;
-    probeCanvas.height = this.height;
-    probeCanvas.style.display = 'block';
-    probeCanvas.style.width = '100%';
-    probeCanvas.style.height = '100%';
-
-    let gl2: WebGL2RenderingContext | null = null;
-    try {
-      gl2 = probeCanvas.getContext('webgl2', {
-        alpha: false,
-        antialias: true,
-        depth: false,
-        stencil: false,
-        powerPreference: 'high-performance',
-      });
-    } catch {
-      gl2 = null;
-    }
-
-    const baseConfig: Phaser.Types.Core.GameConfig = {
+    // Let Phaser 3.90 initialize its native WebGL1 / Canvas renderer cleanly
+    // (manual WebGL2 injection breaks Phaser's extension & DST_ALPHA state on hardware GPUs)
+    this.game = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: this.container,
       width: this.width,
       height: this.height,
       backgroundColor: '#08060c',
+      transparent: false,
       antialias: true,
-      antialiasGL: true,
+      antialiasGL: false,
       roundPixels: false,
       powerPreference: 'high-performance',
       batchSize: 4096,
@@ -109,30 +94,13 @@ export class BattleRenderer {
         autoCenter: Phaser.Scale.NO_CENTER,
       },
       scene: this.scene,
-    };
+    });
 
-    if (gl2) {
-      this.glContext = gl2;
-      this.canvasEl = probeCanvas;
-      this.container.appendChild(probeCanvas);
-      this.game = new Phaser.Game({
-        ...baseConfig,
-        type: Phaser.WEBGL,
-        canvas: probeCanvas,
-        context: gl2 as unknown as CanvasRenderingContext2D,
-      });
-    } else {
-      this.game = new Phaser.Game({
-        ...baseConfig,
-        type: Phaser.AUTO,
-        parent: this.container,
-      });
-      this.canvasEl = this.game.canvas ?? null;
-      if (this.canvasEl) {
-        this.canvasEl.style.display = 'block';
-        this.canvasEl.style.width = '100%';
-        this.canvasEl.style.height = '100%';
-      }
+    this.canvasEl = this.game.canvas ?? null;
+    if (this.canvasEl) {
+      this.canvasEl.style.display = 'block';
+      this.canvasEl.style.width = '100%';
+      this.canvasEl.style.height = '100%';
     }
   }
 
@@ -148,6 +116,30 @@ export class BattleRenderer {
     return this.destroyed;
   }
 
+  setPaused(paused: boolean): void {
+    if (this.destroyed || this.paused === paused) return;
+    this.paused = paused;
+    if (!this.sceneIsReady) return;
+
+    if (paused) {
+      this.game.events.off(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
+      if (this.game.loop.running) {
+        this.game.events.once(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
+      }
+    } else {
+      this.game.events.off(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
+      if (!this.game.loop.running) {
+        this.game.loop.wake();
+      }
+    }
+  }
+
+  private sleepOnPostRender = (): void => {
+    if (!this.destroyed && this.paused && this.game.loop && this.game.loop.running) {
+      this.game.loop.sleep();
+    }
+  };
+
   setDisplayOptions(options: BattleRendererDisplayOptions): void {
     if (this.destroyed) return;
     this.scene.setDisplayOptions(options);
@@ -160,6 +152,11 @@ export class BattleRenderer {
       return;
     }
     this.scene.applyFrameState(state);
+    if (this.paused && !this.game.loop.running) {
+      this.game.events.off(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
+      this.game.events.once(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
+      this.game.loop.wake();
+    }
   }
 
   resize(width: number, height: number): void {
@@ -180,6 +177,11 @@ export class BattleRenderer {
     }
     if (this.sceneIsReady) {
       this.scene.handleResize(w, h);
+      if (this.paused && !this.game.loop.running) {
+        this.game.events.off(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
+        this.game.events.once(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
+        this.game.loop.wake();
+      }
     }
   }
 
@@ -189,15 +191,12 @@ export class BattleRenderer {
     this.sceneIsReady = false;
     this.pendingState = null;
 
-    const gl = this.glContext;
+    this.game.events.off(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
     const canvas = this.canvasEl ?? this.game.canvas;
-    this.glContext = null;
     this.canvasEl = null;
 
     try {
       this.game.destroy(true, false);
-      // Phaser.Game.destroy sets pendingDestroy=true and defers runDestroy() to next step;
-      // step synchronously if needed so textures, GL wrappers, listeners, and canvas are freed immediately.
       const internalGame = this.game as unknown as {
         pendingDestroy?: boolean;
         step?: (time: number, delta: number) => void;
@@ -208,13 +207,6 @@ export class BattleRenderer {
     } finally {
       if (canvas && canvas.parentNode) {
         canvas.parentNode.removeChild(canvas);
-      }
-      if (gl && !gl.isContextLost()) {
-        try {
-          gl.getExtension('WEBGL_lose_context')?.loseContext();
-        } catch {
-          // ignore cleanup extension errors
-        }
       }
       this.resolveReady();
     }

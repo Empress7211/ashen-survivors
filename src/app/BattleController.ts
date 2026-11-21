@@ -1,6 +1,5 @@
 import type {
   AudioAndDisplaySettings,
-  AudioCue,
   Catalog,
   RenderFrameState,
   RunPhase,
@@ -42,6 +41,9 @@ export class BattleController {
   private readonly input = new InputManager();
   private readonly listeners = new ListenerBag();
   private readonly modalHost: HTMLElement;
+  private readonly loadingOverlay: HTMLElement;
+  private readonly loadingFill: HTMLElement;
+  private readonly loadingSub: HTMLElement;
 
   private readonly achievementById: Map<string, Catalog['achievements'][number]>;
   private readonly seenAchievements = new Set<string>();
@@ -49,8 +51,11 @@ export class BattleController {
   private rafId: number | null = null;
   private lastTimestamp = 0;
   private accumulator = 0;
+  private fpsSampleStart = 0;
+  private fpsFrameCount = 0;
   private destroyed = false;
   private settlementRecorded = false;
+  private startedLoop = false;
 
   private currentFrame: RenderFrameState;
   private lastModalKey = '';
@@ -96,8 +101,35 @@ export class BattleController {
         this.audio.applySettings(this.saveStore.getState().settings);
       },
       onTogglePause: () => {
+        if (!this.renderer.isReady()) return;
         this.dispatch({ type: 'toggle_pause' });
       },
+    });
+
+    this.loadingFill = el('div', { className: 'battle-loading-fill' });
+    this.loadingSub = el('p', {
+      className: 'battle-loading-sub num-font',
+      text: '正在载入战场纹理与图集… 0%',
+    });
+    this.loadingOverlay = el('div', {
+      className: 'battle-loading-overlay',
+      dataset: { testid: 'battle-loading' },
+      children: [
+        el('div', {
+          className: 'battle-loading-card',
+          children: [
+            el('h2', {
+              className: 'battle-loading-title',
+              text: `${this.catalog.stages[config.stageId].name} · 踏入灰烬之夜`,
+            }),
+            this.loadingSub,
+            el('div', {
+              className: 'battle-loading-track',
+              children: [this.loadingFill],
+            }),
+          ],
+        }),
+      ],
     });
 
     this.container.append(
@@ -105,6 +137,7 @@ export class BattleController {
       this.hud.element,
       this.joystickView.element,
       this.modalHost,
+      this.loadingOverlay,
     );
 
     const width = Math.max(1, this.container.clientWidth || window.innerWidth || 1280);
@@ -117,19 +150,27 @@ export class BattleController {
       visualEffectsQuality: save.settings.visualEffectsQuality,
       screenShakeEnabled: save.settings.screenShake,
       showDamageNumbers: save.settings.showDamageNumbers,
+      onLoadProgress: (progress) => {
+        if (this.destroyed) return;
+        const clamped = Math.max(0, Math.min(1, progress));
+        this.loadingFill.style.transform = `scaleX(${clamped.toFixed(3)})`;
+        this.loadingSub.textContent = `正在载入战场纹理与图集… ${Math.round(clamped * 100)}%`;
+      },
+      onError: () => {
+        if (this.destroyed) return;
+        this.loadingSub.textContent = '部分资产载入异常，正在尝试继续进入战场…';
+      },
     });
 
-    this.currentFrame = this.sim.step(0, 0, 0);
+    this.currentFrame = this.sim.getRenderFrame();
   }
 
   start(): void {
-    const stageDef = this.catalog.stages[this.sim.config.stageId];
-    this.audio.startBgm(stageDef.bgmTheme);
-
     this.input.attach(this.container, {
-      isPlaying: () => this.currentFrame.phase === 'playing',
+      isPlaying: () => this.renderer.isReady() && this.currentFrame.phase === 'playing',
       onJoystickChange: (joy) => this.joystickView.update(joy),
       onGamepadPause: () => {
+        if (!this.renderer.isReady()) return;
         if (this.currentFrame.phase === 'playing' || this.currentFrame.phase === 'paused') {
           this.dispatch({ type: 'toggle_pause' });
         }
@@ -137,10 +178,31 @@ export class BattleController {
     });
 
     this.bindEvents();
-    this.syncFrame(this.currentFrame);
+    this.hud.update(this.currentFrame, this.audio.isMuted());
 
-    this.lastTimestamp = performance.now();
-    this.rafId = window.requestAnimationFrame(this.onAnimationFrame);
+    const beginActiveBattle = (): void => {
+      if (this.destroyed || this.startedLoop) return;
+      this.startedLoop = true;
+
+      this.loadingFill.style.transform = 'scaleX(1)';
+      this.loadingOverlay.remove();
+
+      const stageDef = this.catalog.stages[this.sim.config.stageId];
+      this.audio.startBgm(stageDef.bgmTheme);
+
+      this.syncFrame(this.currentFrame);
+      const now = performance.now();
+      this.lastTimestamp = now;
+      this.fpsSampleStart = now;
+      this.fpsFrameCount = 0;
+      this.rafId = window.requestAnimationFrame(this.onAnimationFrame);
+    };
+
+    if (this.renderer.isReady()) {
+      beginActiveBattle();
+    } else {
+      void this.renderer.ready().then(beginActiveBattle);
+    }
   }
 
   private bindEvents(): void {
@@ -152,13 +214,17 @@ export class BattleController {
     });
 
     this.listeners.on(document, 'visibilitychange', () => {
-      if (document.hidden && this.currentFrame.phase === 'playing') {
+      if (
+        document.hidden &&
+        this.renderer.isReady() &&
+        this.currentFrame.phase === 'playing'
+      ) {
         this.dispatch({ type: 'toggle_pause' });
       }
     });
 
     this.listeners.on(window, 'keydown', (ev) => {
-      if (this.destroyed) return;
+      if (this.destroyed || !this.renderer.isReady()) return;
       if (ev.repeat) return;
 
       const phase = this.currentFrame.phase;
@@ -247,6 +313,14 @@ export class BattleController {
   private onAnimationFrame = (timestamp: number): void => {
     if (this.destroyed) return;
 
+    this.fpsFrameCount += 1;
+    const fpsSpan = timestamp - this.fpsSampleStart;
+    if (fpsSpan >= 400) {
+      this.hud.updateFps((this.fpsFrameCount * 1000) / fpsSpan);
+      this.fpsSampleStart = timestamp;
+      this.fpsFrameCount = 0;
+    }
+
     const rawDt = Math.max(0, (timestamp - this.lastTimestamp) / 1000);
     this.lastTimestamp = timestamp;
     const clampedDt = Math.min(0.1, rawDt);
@@ -254,33 +328,22 @@ export class BattleController {
     if (this.currentFrame.phase === 'playing') {
       this.accumulator += clampedDt;
       let steps = 0;
-      let latestFrame = this.currentFrame;
-      const mergedCues: AudioCue[] = [];
       while (this.accumulator >= FIXED_DT && steps < 6) {
         const move = this.input.pollMovement();
-        latestFrame = this.sim.step(move.x, move.y, FIXED_DT);
-        if (latestFrame.audioCues.length > 0) {
-          mergedCues.push(...latestFrame.audioCues);
-        }
+        const nextPhase = this.sim.stepTick(move.x, move.y, FIXED_DT);
         this.accumulator -= FIXED_DT;
         steps += 1;
-        if (latestFrame.phase !== 'playing') {
+        if (nextPhase !== 'playing') {
           this.accumulator = 0;
           break;
         }
       }
       if (steps > 0) {
-        if (mergedCues.length > 0) {
-          this.audio.playCues(mergedCues);
-        }
-        this.syncFrame(latestFrame, true);
-      } else {
-        this.renderer.render(this.currentFrame);
+        const frame = this.sim.getRenderFrame();
+        this.syncFrame(frame);
       }
     } else {
       this.accumulator = 0;
-      this.input.pollMovement();
-      this.renderer.render(this.currentFrame);
     }
 
     this.rafId = window.requestAnimationFrame(this.onAnimationFrame);
@@ -300,18 +363,20 @@ export class BattleController {
     }
   }
 
-  private syncFrame(frame: RenderFrameState, skipAudioCues = false): void {
+  private syncFrame(frame: RenderFrameState): void {
     this.currentFrame = frame;
 
-    if (frame.phase !== 'playing') {
+    const isPlaying = frame.phase === 'playing';
+    if (!isPlaying) {
       this.input.resetJoystick();
     }
 
-    if (!skipAudioCues && frame.audioCues.length > 0) {
+    if (frame.audioCues.length > 0) {
       this.audio.playCues(frame.audioCues);
     }
 
     this.renderer.render(frame);
+    this.renderer.setPaused(!isPlaying);
     this.hud.update(frame, this.audio.isMuted());
     this.checkAchievementToasts();
     this.syncModalForPhase(frame);

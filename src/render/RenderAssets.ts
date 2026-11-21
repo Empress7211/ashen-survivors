@@ -10,6 +10,13 @@ export const TEX_SHADOW_ELLIPSE = 'proc_shadow_ellipse';
 export const TEX_GLOW_DISC = 'proc_glow_disc';
 export const TEX_VIGNETTE = 'proc_vignette';
 export const TEX_EDGE_ARROW = 'proc_edge_arrow';
+export const TEX_BITMAP_DIGITS = 'proc_bitmap_digits';
+
+export const BITMAP_DIGIT_CELL_W = 18;
+export const BITMAP_DIGIT_CELL_H = 26;
+export const BITMAP_DIGIT_ADVANCE = 13;
+
+const DIGIT_GLYPHS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '-', '!', ','] as const;
 
 export function stageTextureKey(stageId: StageId): string {
   return `stage_floor_${stageId}`;
@@ -65,6 +72,10 @@ export const ADDITIVE_VFX_KEYS = new Set<string>([
   'laurel_shield',
 ]);
 
+/**
+ * Preload only the essential battle atlases and active stage floor (7 requests total)
+ * so battles launch immediately over real network connections.
+ */
 export function queueCorePreload(
   loader: Phaser.Loader.LoaderPlugin,
   initialStageId?: StageId,
@@ -73,17 +84,39 @@ export function queueCorePreload(
   loader.atlas(ATLAS_ENTITIES, '/assets/atlases/entities.png', '/assets/atlases/entities.json');
   loader.atlas(ATLAS_VFX, '/assets/atlases/vfx.png', '/assets/atlases/vfx.json');
 
-  if (initialStageId) {
-    loader.image(stageTextureKey(initialStageId), stageTexturePath(initialStageId));
-  } else {
-    loader.image(stageTextureKey('mad_forest'), stageTexturePath('mad_forest'));
-  }
+  const stage = initialStageId ?? 'mad_forest';
+  loader.image(stageTextureKey(stage), stageTexturePath(stage));
+}
 
-  // Preload passive icons so stage ground passives & offscreen indicators render immediately
+/**
+ * Lazy-load stage ground passive icons in the background after the scene starts.
+ */
+export function queueLazyPassiveIcons(
+  loader: Phaser.Loader.LoaderPlugin,
+  textures: Phaser.Textures.TextureManager,
+): void {
+  let queued = 0;
   for (let i = 0; i < PASSIVE_IDS.length; i++) {
     const pid = PASSIVE_IDS[i]!;
-    loader.image(passiveIconKey(pid), passiveIconPath(pid));
+    const key = passiveIconKey(pid);
+    if (!textures.exists(key)) {
+      loader.image(key, passiveIconPath(pid));
+      queued++;
+    }
   }
+  if (queued > 0 && !loader.isLoading()) {
+    loader.start();
+  }
+}
+
+export function isSupportedDigitGlyph(ch: string): boolean {
+  return (
+    (ch >= '0' && ch <= '9') ||
+    ch === '+' ||
+    ch === '-' ||
+    ch === '!' ||
+    ch === ','
+  );
 }
 
 export function createProceduralTextures(textures: Phaser.Textures.TextureManager): void {
@@ -126,11 +159,11 @@ export function createProceduralTextures(textures: Phaser.Textures.TextureManage
     const c = textures.createCanvas(TEX_VIGNETTE, 512, 512);
     if (c) {
       const ctx = c.getContext();
-      const grad = ctx.createRadialGradient(256, 256, 130, 256, 256, 360);
+      const grad = ctx.createRadialGradient(256, 256, 150, 256, 256, 370);
       grad.addColorStop(0, 'rgba(5, 4, 9, 0)');
-      grad.addColorStop(0.62, 'rgba(5, 4, 9, 0.14)');
-      grad.addColorStop(0.86, 'rgba(5, 4, 9, 0.48)');
-      grad.addColorStop(1, 'rgba(4, 3, 7, 0.84)');
+      grad.addColorStop(0.68, 'rgba(5, 4, 9, 0.1)');
+      grad.addColorStop(0.88, 'rgba(5, 4, 9, 0.34)');
+      grad.addColorStop(1, 'rgba(4, 3, 7, 0.65)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 512, 512);
       c.refresh();
@@ -142,7 +175,6 @@ export function createProceduralTextures(textures: Phaser.Textures.TextureManage
     if (c) {
       const ctx = c.getContext();
       ctx.clearRect(0, 0, 48, 48);
-      // Dark gothic outline chevron pointing RIGHT (+X)
       ctx.beginPath();
       ctx.moveTo(42, 24);
       ctx.lineTo(14, 7);
@@ -155,6 +187,37 @@ export function createProceduralTextures(textures: Phaser.Textures.TextureManage
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       c.refresh();
+    }
+  }
+
+  if (!textures.exists(TEX_BITMAP_DIGITS)) {
+    const sheetW = DIGIT_GLYPHS.length * BITMAP_DIGIT_CELL_W;
+    const sheetH = BITMAP_DIGIT_CELL_H;
+    const c = textures.createCanvas(TEX_BITMAP_DIGITS, sheetW, sheetH);
+    if (c) {
+      const ctx = c.getContext();
+      ctx.clearRect(0, 0, sheetW, sheetH);
+      ctx.font = "900 18px 'Cinzel', Georgia, 'Times New Roman', serif";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4.2;
+      ctx.strokeStyle = '#09060d';
+      ctx.fillStyle = '#ffffff';
+
+      for (let i = 0; i < DIGIT_GLYPHS.length; i++) {
+        const glyph = DIGIT_GLYPHS[i]!;
+        const cx = i * BITMAP_DIGIT_CELL_W + BITMAP_DIGIT_CELL_W * 0.5;
+        const cy = sheetH * 0.5 + 1;
+        ctx.strokeText(glyph, cx, cy);
+        ctx.fillText(glyph, cx, cy);
+      }
+      c.refresh();
+
+      for (let i = 0; i < DIGIT_GLYPHS.length; i++) {
+        const glyph = DIGIT_GLYPHS[i]!;
+        c.add(glyph, 0, i * BITMAP_DIGIT_CELL_W, 0, BITMAP_DIGIT_CELL_W, sheetH);
+      }
     }
   }
 }

@@ -127,6 +127,7 @@ export class VfxRenderer {
 
     // 3. Projectiles & Orbiters
     const projectiles = state.projectiles;
+    const drawProjAccents = highQuality && projectiles.length <= 90;
     for (let i = 0; i < projectiles.length; i++) {
       const p = projectiles[i]!;
       if (
@@ -142,7 +143,9 @@ export class VfxRenderer {
       const sprite = useAdditive
         ? this.projAddPool.acquire()
         : this.projNormalPool.acquire();
-      sprite.setTexture(ATLAS_VFX, p.vfxKey);
+      if (sprite.frame.name !== p.vfxKey) {
+        sprite.setFrame(p.vfxKey);
+      }
       sprite.setOrigin(0.5, 0.5);
       sprite.setPosition(p.x, p.y);
       sprite.setScale(p.scale * 0.68);
@@ -159,11 +162,11 @@ export class VfxRenderer {
 
       if (p.tint !== undefined) {
         sprite.setTint(p.tint);
-      } else {
+      } else if (sprite.isTinted) {
         sprite.clearTint();
       }
 
-      if (highQuality) {
+      if (drawProjAccents) {
         this.renderProjectileAccent(p.vfxKey, p.x, p.y, p.vx, p.vy, p.scale, p.alpha);
       }
     }

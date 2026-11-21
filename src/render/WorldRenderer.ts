@@ -11,6 +11,7 @@ import { ImagePool } from './SpritePool';
 export class WorldRenderer {
   private readonly scene: Phaser.Scene;
   private readonly floorTile: Phaser.GameObjects.TileSprite;
+  private readonly playerLight: Phaser.GameObjects.Image;
   private readonly corridorGraphics: Phaser.GameObjects.Graphics;
   private readonly wallPool: ImagePool;
   private readonly wallGlowPool: ImagePool;
@@ -29,6 +30,14 @@ export class WorldRenderer {
     this.floorTile = scene.add.tileSprite(0, 0, 1440, 960, texKey);
     this.floorTile.setOrigin(0.5, 0.5);
     this.floorTile.setDepth(0);
+
+    // Subtle warm gothic torchlight halo around the hero so the battlefield reads crisply
+    this.playerLight = scene.add.image(0, 0, TEX_GLOW_DISC);
+    this.playerLight.setDepth(1);
+    this.playerLight.setBlendMode(Phaser.BlendModes.ADD);
+    this.playerLight.setScale(5.2);
+    this.playerLight.setAlpha(0.14);
+    this.playerLight.setTint(0xffe1b8);
 
     this.corridorGraphics = scene.add.graphics();
     this.corridorGraphics.setDepth(2);
@@ -91,6 +100,7 @@ export class WorldRenderer {
     this.floorTile.setPosition(camCenterX, camCenterY);
     this.floorTile.tilePositionX = camCenterX - tileW * 0.5;
     this.floorTile.tilePositionY = camCenterY - tileH * 0.5;
+    this.playerLight.setPosition(camCenterX, camCenterY);
 
     this.corridorGraphics.clear();
     this.wallPool.beginFrame();
@@ -289,6 +299,7 @@ export class WorldRenderer {
 
   destroy(): void {
     this.floorTile.destroy();
+    this.playerLight.destroy();
     this.corridorGraphics.destroy();
     this.wallPool.destroy();
     this.wallGlowPool.destroy();

@@ -36,6 +36,7 @@ export class BattleHudView {
   private readonly enemyCountEl: HTMLElement;
   private readonly hpTextEl: HTMLElement;
   private readonly hpFillEl: HTMLElement;
+  private readonly fpsEl: HTMLElement;
   private readonly muteBtn: HTMLButtonElement;
   private readonly toastStack: HTMLElement;
 
@@ -44,6 +45,19 @@ export class BattleHudView {
   private lastArcanasKey = '';
   private lastModeKey = '';
   private lastBossId = '';
+  private lastBossVisible = false;
+  private lastBossHpText = '';
+  private lastBossRatioKey = '';
+  private lastXpRatioKey = '';
+  private lastLevelText = '';
+  private lastTimerText = '';
+  private lastKillsText = '';
+  private lastGoldText = '';
+  private lastEnemyText = '';
+  private lastHpRatioKey = '';
+  private lastHpText = '';
+  private lastMuted: boolean | null = null;
+  private lastFpsText = '';
 
   constructor(deps: BattleHudDeps) {
     this.catalog = deps.catalog;
@@ -100,7 +114,9 @@ export class BattleHudView {
       dataset: { testid: 'btn-hud-mute' },
       onClick: () => {
         deps.onToggleMute();
-        this.muteBtn.textContent = deps.isMuted() ? '🔇' : '🔊';
+        const muted = deps.isMuted();
+        this.lastMuted = muted;
+        this.muteBtn.textContent = muted ? '🔇' : '🔊';
       },
     });
 
@@ -117,6 +133,11 @@ export class BattleHudView {
     this.enemyCountEl = el('span', { text: '0' });
     this.hpTextEl = el('span', { className: 'num-font', text: '100/100' });
     this.hpFillEl = el('div', { className: 'hud-hp-mini-fill' });
+    this.fpsEl = el('span', {
+      className: 'hud-fps-pill',
+      dataset: { testid: 'hud-fps' },
+      text: '60 FPS',
+    });
 
     this.toastStack = el('div', { className: 'achievement-toast-stack' });
 
@@ -146,7 +167,10 @@ export class BattleHudView {
                   className: 'hud-clock-row',
                   children: [this.timerEl, this.muteBtn, pauseBtn],
                 }),
-                this.modeTagsEl,
+                el('div', {
+                  className: 'title-meta-pills',
+                  children: [this.modeTagsEl, this.fpsEl],
+                }),
                 el('div', {
                   className: 'hud-counters-row',
                   children: [
@@ -185,21 +209,72 @@ export class BattleHudView {
     });
   }
 
+  updateFps(fps: number): void {
+    const rounded = Math.max(0, Math.round(fps));
+    const text = `${rounded} FPS`;
+    if (text !== this.lastFpsText) {
+      this.lastFpsText = text;
+      this.fpsEl.textContent = text;
+    }
+  }
+
   update(frame: RenderFrameState, muted: boolean): void {
     const { hud, bossBar } = frame;
-    const xpPct = hud.xpToNextLevel > 0 ? Math.min(100, (hud.xp / hud.xpToNextLevel) * 100) : 0;
-    this.xpFill.style.width = `${xpPct.toFixed(1)}%`;
-    this.lvBadge.textContent = `Lv. ${hud.level}`;
 
-    this.timerEl.textContent = formatClock(hud.elapsedSeconds);
-    this.killsEl.textContent = formatInt(hud.kills);
-    this.goldEl.textContent = formatInt(hud.goldEarned);
-    this.enemyCountEl.textContent = formatInt(hud.activeEnemyCount);
+    const xpRatio = hud.xpToNextLevel > 0 ? Math.max(0, Math.min(1, hud.xp / hud.xpToNextLevel)) : 0;
+    const xpKey = xpRatio.toFixed(3);
+    if (xpKey !== this.lastXpRatioKey) {
+      this.lastXpRatioKey = xpKey;
+      this.xpFill.style.transform = `scaleX(${xpKey})`;
+    }
 
-    const hpPct = hud.maxHp > 0 ? Math.max(0, Math.min(100, (hud.hp / hud.maxHp) * 100)) : 0;
-    this.hpFillEl.style.width = `${hpPct.toFixed(1)}%`;
-    this.hpTextEl.textContent = `${Math.ceil(hud.hp)}/${Math.round(hud.maxHp)}`;
-    this.muteBtn.textContent = muted ? '🔇' : '🔊';
+    const lvText = `Lv. ${hud.level}`;
+    if (lvText !== this.lastLevelText) {
+      this.lastLevelText = lvText;
+      this.lvBadge.textContent = lvText;
+    }
+
+    const timerText = formatClock(hud.elapsedSeconds);
+    if (timerText !== this.lastTimerText) {
+      this.lastTimerText = timerText;
+      this.timerEl.textContent = timerText;
+    }
+
+    const killsText = formatInt(hud.kills);
+    if (killsText !== this.lastKillsText) {
+      this.lastKillsText = killsText;
+      this.killsEl.textContent = killsText;
+    }
+
+    const goldText = formatInt(hud.goldEarned);
+    if (goldText !== this.lastGoldText) {
+      this.lastGoldText = goldText;
+      this.goldEl.textContent = goldText;
+    }
+
+    const enemyText = formatInt(hud.activeEnemyCount);
+    if (enemyText !== this.lastEnemyText) {
+      this.lastEnemyText = enemyText;
+      this.enemyCountEl.textContent = enemyText;
+    }
+
+    const hpRatio = hud.maxHp > 0 ? Math.max(0, Math.min(1, hud.hp / hud.maxHp)) : 0;
+    const hpKey = hpRatio.toFixed(3);
+    if (hpKey !== this.lastHpRatioKey) {
+      this.lastHpRatioKey = hpKey;
+      this.hpFillEl.style.transform = `scaleX(${hpKey})`;
+    }
+
+    const hpText = `${Math.ceil(hud.hp)}/${Math.round(hud.maxHp)}`;
+    if (hpText !== this.lastHpText) {
+      this.lastHpText = hpText;
+      this.hpTextEl.textContent = hpText;
+    }
+
+    if (muted !== this.lastMuted) {
+      this.lastMuted = muted;
+      this.muteBtn.textContent = muted ? '🔇' : '🔊';
+    }
 
     this.syncModeTags(hud);
     this.syncWeaponSlots(hud);
@@ -207,16 +282,28 @@ export class BattleHudView {
     this.syncArcanaSlots(hud);
 
     if (bossBar) {
-      this.bossBar.style.display = 'flex';
+      if (!this.lastBossVisible) {
+        this.lastBossVisible = true;
+        this.bossBar.style.display = 'flex';
+      }
       if (this.lastBossId !== bossBar.enemyId) {
         this.lastBossId = bossBar.enemyId;
         this.bossIcon.src = iconUrl(bossBar.enemyId);
         this.bossName.textContent = bossBar.name;
       }
-      const bPct = bossBar.maxHp > 0 ? Math.max(0, Math.min(100, (bossBar.hp / bossBar.maxHp) * 100)) : 0;
-      this.bossFill.style.width = `${bPct.toFixed(1)}%`;
-      this.bossHpText.textContent = `${formatInt(bossBar.hp)} / ${formatInt(bossBar.maxHp)}`;
-    } else {
+      const bRatio = bossBar.maxHp > 0 ? Math.max(0, Math.min(1, bossBar.hp / bossBar.maxHp)) : 0;
+      const bKey = bRatio.toFixed(3);
+      if (bKey !== this.lastBossRatioKey) {
+        this.lastBossRatioKey = bKey;
+        this.bossFill.style.transform = `scaleX(${bKey})`;
+      }
+      const bText = `${formatInt(bossBar.hp)} / ${formatInt(bossBar.maxHp)}`;
+      if (bText !== this.lastBossHpText) {
+        this.lastBossHpText = bText;
+        this.bossHpText.textContent = bText;
+      }
+    } else if (this.lastBossVisible) {
+      this.lastBossVisible = false;
       this.bossBar.style.display = 'none';
     }
   }

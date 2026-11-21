@@ -16,8 +16,10 @@ export interface BattleRendererOptions extends BattleRendererDisplayOptions {
   width?: number;
   /** Initial viewport height in CSS pixels (defaults to container.clientHeight || 720). */
   height?: number;
+  /** Callback invoked with preload progress in [0, 1]. */
+  onLoadProgress?: (progress: number) => void;
   /** Callback invoked once the Phaser scene and atlases have finished preloading and setup. */
   onReady?: () => void;
-  /** Optional error callback if WebGL/Phaser initialization fails. */
+  /** Optional error callback if WebGL/Phaser asset loading reports a failure. */
   onError?: (error: unknown) => void;
 }
