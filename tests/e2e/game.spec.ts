@@ -212,6 +212,13 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await expect(settingsMinimapBtn).toHaveText('关闭');
     await settingsMinimapBtn.click();
     await expect(settingsMinimapBtn).toHaveText('开启');
+
+    const settingsMouseFollowBtn = page.getByTestId('btn-settings-mouse-follow');
+    await expect(settingsMouseFollowBtn).toHaveText('关闭');
+    await settingsMouseFollowBtn.click();
+    await expect(settingsMouseFollowBtn).toHaveText('开启');
+    await settingsMouseFollowBtn.click();
+    await expect(settingsMouseFollowBtn).toHaveText('关闭');
     await page.getByTestId('btn-export-save').click();
     await shot(page, '06-settings.png');
 
@@ -370,6 +377,13 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
       .not.toBe('00:00');
     await assertCanvasNonBlack(page, canvas, 'Mad Forest Live Battle');
 
+    const hudMouseBtn = page.getByTestId('btn-hud-mouse-follow');
+    await expect(hudMouseBtn).toBeVisible();
+    await hudMouseBtn.click();
+    await expect(hudMouseBtn).toHaveClass(/active/);
+    await hudMouseBtn.click();
+    await expect(hudMouseBtn).not.toHaveClass(/active/);
+
     // Drive real WASD movement to engage enemies, kill them, and magnetize XP gems to Lv.2
     const keys = ['KeyD', 'KeyW', 'KeyA', 'KeyS'];
     let capturedBattleShot = false;
@@ -415,6 +429,7 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
 
     // Inspect Level-Up modal and choose option 1 via hotkey '1'
     await expect(page.getByTestId('modal-level-up')).toBeVisible();
+    await expect(page.getByTestId('btn-draft-auto-toggle')).toBeVisible();
     await assertAllImagesLoaded(page, 'Level-Up Modal');
     await assertNoInvalidText(page, 'Level-Up Modal');
     await shot(page, '10-level-up-modal.png');

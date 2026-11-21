@@ -373,8 +373,22 @@ export class InputManager {
   private joyX = 0;
   private joyY = 0;
   private prevGamepadPause = false;
+  private mouseFollow = false;
+  private cursorX = 0;
+  private cursorY = 0;
+  private hasCursor = false;
+  private surfaceEl: HTMLElement | null = null;
+  private isPlayingCb?: () => boolean;
   private onJoystickChange?: (state: JoystickState) => void;
   private onGamepadPause?: () => void;
+
+  setMouseFollow(enabled: boolean): void {
+    this.mouseFollow = enabled;
+  }
+
+  isMouseFollow(): boolean {
+    return this.mouseFollow;
+  }
 
   attach(
     surface: HTMLElement,
@@ -385,6 +399,8 @@ export class InputManager {
     },
   ): void {
     this.detach();
+    this.surfaceEl = surface;
+    this.isPlayingCb = callbacks.isPlaying;
     this.onJoystickChange = callbacks.onJoystickChange;
     this.onGamepadPause = callbacks.onGamepadPause;
 
@@ -398,6 +414,7 @@ export class InputManager {
 
     this.listeners.on(window, 'blur', () => {
       this.keysDown.clear();
+      this.hasCursor = false;
       this.resetJoystick();
     });
 
@@ -422,6 +439,11 @@ export class InputManager {
     });
 
     this.listeners.on(window, 'pointermove', (ev) => {
+      if (ev.pointerType === 'mouse') {
+        this.cursorX = ev.clientX;
+        this.cursorY = ev.clientY;
+        this.hasCursor = true;
+      }
       if (this.activePointerId !== ev.pointerId || !this.joystick.active) return;
       const dx = ev.clientX - this.joystick.originX;
       const dy = ev.clientY - this.joystick.originY;
@@ -518,6 +540,29 @@ export class InputManager {
       }
     }
 
+    if (
+      x === 0 &&
+      y === 0 &&
+      this.mouseFollow &&
+      this.hasCursor &&
+      this.surfaceEl &&
+      this.isPlayingCb?.()
+    ) {
+      const rect = this.surfaceEl.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const cx = rect.left + rect.width * 0.5;
+        const cy = rect.top + rect.height * 0.5;
+        const dx = this.cursorX - cx;
+        const dy = this.cursorY - cy;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 24) {
+          const strength = Math.min(1, (dist - 24) / 68);
+          x = (dx / dist) * strength;
+          y = (dy / dist) * strength;
+        }
+      }
+    }
+
     const mag = Math.hypot(x, y);
     if (mag > 1) {
       return { x: x / mag, y: y / mag };
@@ -528,6 +573,9 @@ export class InputManager {
   detach(): void {
     this.listeners.clear();
     this.keysDown.clear();
+    this.hasCursor = false;
+    this.surfaceEl = null;
+    this.isPlayingCb = undefined;
     this.resetJoystick();
   }
 }

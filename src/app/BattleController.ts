@@ -1,5 +1,6 @@
 import type {
   AudioAndDisplaySettings,
+  AutoLevelUpMode,
   Catalog,
   RenderFrameState,
   RunPhase,
@@ -110,6 +111,14 @@ export class BattleController {
         if (!this.renderer.isReady()) return;
         this.dispatch({ type: 'toggle_pause' });
       },
+      onToggleMouseFollow: () => {
+        if (!this.renderer.isReady()) return;
+        this.toggleMouseFollow();
+      },
+      onDisableAutoLevelUp: () => {
+        if (!this.renderer.isReady()) return;
+        this.applyAutoLevelUpMode('off');
+      },
     });
 
     this.loadingFill = el('div', { className: 'battle-loading-fill' });
@@ -172,6 +181,7 @@ export class BattleController {
   }
 
   start(): void {
+    this.input.setMouseFollow(Boolean(this.saveStore.getState().settings.mouseFollow));
     this.input.attach(this.container, {
       isPlaying: () => this.renderer.isReady() && this.currentFrame.phase === 'playing',
       onJoystickChange: (joy) => this.joystickView.update(joy),
@@ -184,8 +194,10 @@ export class BattleController {
     });
 
     this.bindEvents();
+    const initialSettings = this.saveStore.getState().settings;
     this.hud.update(this.currentFrame, this.audio.isMuted(), {
-      showMinimap: this.saveStore.getState().settings.showMinimap,
+      showMinimap: initialSettings.showMinimap,
+      mouseFollow: initialSettings.mouseFollow,
     });
 
     const beginActiveBattle = (): void => {
@@ -244,7 +256,7 @@ export class BattleController {
 
     this.listeners.on(window, 'keydown', (ev) => {
       if (this.destroyed || !this.renderer.isReady()) return;
-      if (ev.repeat) return;
+      if (ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey) return;
 
       const phase = this.currentFrame.phase;
 
@@ -252,6 +264,13 @@ export class BattleController {
         if (ev.code === 'Space' || ev.code === 'Escape') {
           ev.preventDefault();
           this.dispatch({ type: 'toggle_pause' });
+        } else if (ev.code === 'KeyF') {
+          ev.preventDefault();
+          this.toggleMouseFollow();
+        } else if (ev.code === 'KeyT') {
+          ev.preventDefault();
+          const cur = this.currentFrame.hud.autoLevelUpMode ?? 'off';
+          this.applyAutoLevelUpMode(cur === 'off' ? 'smart' : 'off');
         }
         return;
       }
@@ -298,6 +317,9 @@ export class BattleController {
         } else if (ev.code === 'KeyB' && phase === 'level_up') {
           ev.preventDefault();
           this.dispatch({ type: 'toggle_banish_mode' });
+        } else if (ev.code === 'KeyT' && phase === 'level_up') {
+          ev.preventDefault();
+          this.applyAutoLevelUpMode('smart');
         }
         return;
       }
@@ -478,8 +500,10 @@ export class BattleController {
 
     this.renderer.render(frame, alpha);
     this.renderer.setPaused(!isPlaying);
+    const currentSettings = this.saveStore.getState().settings;
     this.hud.update(frame, this.audio.isMuted(), {
-      showMinimap: this.saveStore.getState().settings.showMinimap,
+      showMinimap: currentSettings.showMinimap,
+      mouseFollow: currentSettings.mouseFollow,
     });
     this.checkAchievementToasts();
     this.syncModalForPhase(frame);
@@ -555,6 +579,7 @@ export class BattleController {
               onReroll: () => this.dispatch({ type: 'reroll_draft' }),
               onSkip: () => this.dispatch({ type: 'skip_draft' }),
               onToggleBanish: () => this.dispatch({ type: 'toggle_banish_mode' }),
+              onSetAutoMode: (mode) => this.applyAutoLevelUpMode(mode),
             }),
           );
         }
@@ -577,10 +602,12 @@ export class BattleController {
             frame,
             pause: frame.pauseSnapshot,
             settings: this.saveStore.getState().settings,
+            autoLevelUpMode: frame.hud.autoLevelUpMode,
             onUpdateSettings: (opts: Partial<AudioAndDisplaySettings>) => {
               this.saveStore.updateSettings(opts);
               const nextSettings = this.saveStore.getState().settings;
               this.audio.applySettings(nextSettings);
+              this.input.setMouseFollow(Boolean(nextSettings.mouseFollow));
               this.renderer.setDisplayOptions({
                 visualEffectsQuality: nextSettings.visualEffectsQuality,
                 screenShakeEnabled: nextSettings.screenShake,
@@ -588,8 +615,10 @@ export class BattleController {
               });
               this.hud.update(this.currentFrame, this.audio.isMuted(), {
                 showMinimap: nextSettings.showMinimap,
+                mouseFollow: nextSettings.mouseFollow,
               });
             },
+            onSetAutoLevelUp: (mode) => this.applyAutoLevelUpMode(mode, false),
             onResume: () => this.dispatch({ type: 'toggle_pause' }),
             onRetire: () => this.dispatch({ type: 'end_run' }),
           });
@@ -653,6 +682,37 @@ export class BattleController {
     this.pauseHandle = null;
     this.menuNav.clearFocus(false);
     this.modalHost.replaceChildren();
+  }
+
+  private toggleMouseFollow(): void {
+    const cur = Boolean(this.saveStore.getState().settings.mouseFollow);
+    const next = !cur;
+    this.saveStore.updateSettings({ mouseFollow: next });
+    this.input.setMouseFollow(next);
+    const settings = this.saveStore.getState().settings;
+    this.hud.update(this.currentFrame, this.audio.isMuted(), {
+      showMinimap: settings.showMinimap,
+      mouseFollow: settings.mouseFollow,
+    });
+    this.audio.playCue({ type: 'ui_click' });
+    this.hud.pushInfoToast(
+      next ? '🖱️ 单手鼠标跟随：已开启' : '🖱️ 单手鼠标跟随：已关闭',
+      next ? '移动鼠标即可单手走位，悬停在角色附近停步（按 F 切换）' : '已切回键盘 WASD / 摇杆控制',
+    );
+  }
+
+  private applyAutoLevelUpMode(mode: AutoLevelUpMode, showToast = true): void {
+    this.dispatch({ type: 'set_auto_level_up', mode });
+    if (!showToast) return;
+    if (mode === 'off') {
+      this.hud.pushInfoToast('升级自动托管已关闭', '后续升级将恢复弹窗供你手动挑选（按 T 再次开启）');
+    } else if (mode === 'gold_bag') {
+      this.hud.pushInfoToast('🪙 自动托管：总是选择钱袋', '后续满级升级将自动拾取金币（按 T 或点右上胶囊关闭）');
+    } else if (mode === 'roast_chicken') {
+      this.hud.pushInfoToast('🍗 自动托管：总是选择烤鸡', '后续满级升级将自动回血续航（按 T 或点右上胶囊关闭）');
+    } else {
+      this.hud.pushInfoToast('⚡ 智能自动选牌：已开启', '优先超武共鸣与高阶强化；满级后自动回血/拿钱');
+    }
   }
 
   private exitToMenu(): void {

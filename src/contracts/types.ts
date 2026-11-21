@@ -423,6 +423,8 @@ export interface StageBestRecord {
   lastHeroId?: HeroId;
 }
 
+export type AutoLevelUpMode = 'off' | 'smart' | 'gold_bag' | 'roast_chicken';
+
 export interface AudioAndDisplaySettings {
   bgmVolume: number;
   sfxVolume: number;
@@ -431,6 +433,7 @@ export interface AudioAndDisplaySettings {
   screenShake: boolean;
   visualEffectsQuality: 'high' | 'medium';
   showMinimap: boolean;
+  mouseFollow: boolean;
   language: 'zh-CN';
 }
 
@@ -531,6 +534,7 @@ export type SimulationAction =
   | { type: 'skip_draft' }
   | { type: 'toggle_banish_mode' }
   | { type: 'banish_draft'; optionId: string }
+  | { type: 'set_auto_level_up'; mode: AutoLevelUpMode }
   | { type: 'close_chest' }
   | { type: 'confirm_revive' }
   | { type: 'forfeit_revive' }
@@ -695,6 +699,7 @@ export interface HudSnapshot {
   endless: boolean;
   endlessCycle: number;
   funMode?: FunModeSettings;
+  autoLevelUpMode?: AutoLevelUpMode;
   hasMilkyWayMap?: boolean;
   mapMarkers?: readonly PauseMapMarker[];
 }
@@ -728,6 +733,7 @@ export interface DraftModalState {
   skipsRemaining: number;
   banishesRemaining: number;
   banishModeActive: boolean;
+  autoLevelUpMode?: AutoLevelUpMode;
 }
 
 export interface ChestRewardItem {

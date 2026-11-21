@@ -128,7 +128,7 @@ export function renderTitleScreen(deps: TitleScreenDeps): HTMLElement {
       el('footer', {
         className: 'title-footer',
         children: [
-          el('span', { text: '操作：WASD / 方向键 / 手柄 / 左下虚拟摇杆移动 · 武器自动释放 · 空格 / Esc 暂停' }),
+          el('span', { text: '操作：WASD / 方向键 / 手柄 / 摇杆移动 · F 单手鼠标跟随 · T 升级自动托管 · 空格暂停' }),
           el('span', { className: 'num-font', text: '16 HEROES · 34 WEAPONS · 5 STAGES · 12 ARCANAS' }),
         ],
       }),

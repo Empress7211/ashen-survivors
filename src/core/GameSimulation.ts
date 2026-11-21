@@ -1,10 +1,12 @@
 import type {
   ArcanaId,
   AudioCue,
+  AutoLevelUpMode,
   BossBarState,
   Catalog,
   ChestModalState,
   DraftModalState,
+  DraftOption,
   EnemyId,
   PassiveSlotSnapshot,
   PauseEvolutionHint,
@@ -99,6 +101,7 @@ export class GameSimulation {
   private settlementModal: SettlementModalState | null = null;
   private cachedRelicsList: RelicId[] = [];
   private cachedRelicCount = -1;
+  autoLevelUpMode: AutoLevelUpMode = 'off';
 
   // Reusable zero-allocation RenderFrameState buffers
   private readonly frameEnemies: RenderEnemyState[] = [];
@@ -219,6 +222,7 @@ export class GameSimulation {
         endless: config.endless,
         endlessCycle: 0,
         funMode: config.funMode,
+        autoLevelUpMode: 'off',
         hasMilkyWayMap: false,
         mapMarkers: undefined,
       },
@@ -526,6 +530,34 @@ export class GameSimulation {
         break;
       }
 
+      case 'set_auto_level_up': {
+        this.autoLevelUpMode = action.mode;
+        this.pushAudioCue({ type: 'ui_click' });
+        if (
+          this.phase === 'level_up' &&
+          action.mode !== 'off' &&
+          this.progression.activeDraft
+        ) {
+          const chosen = this.pickAutoDraftOption(this.progression.activeDraft);
+          if (chosen && this.applyAutoDraftChoice(chosen)) {
+            this.emitAutoLevelUpFeedback(chosen, 1);
+            if (this.progression.pendingLevelUps > 0) {
+              this.openNextLevelUpDraft();
+            } else {
+              this.phase = 'playing';
+            }
+            this.progression.checkAchievementsLive(
+              this.waveDirector.stageClockSeconds,
+              this.weaponSystem,
+              this.createProgressionHooks(),
+              this.playerX,
+              this.playerY,
+            );
+          }
+        }
+        break;
+      }
+
       case 'close_chest': {
         if (this.phase !== 'chest') break;
         this.progression.activeChest = null;
@@ -674,9 +706,10 @@ export class GameSimulation {
         this.facingX = nx / fMag;
         this.facingY = ny / fMag;
       }
-      this.playerAnimTimer += dt;
-      if (this.playerAnimTimer >= 0.12) {
-        this.playerAnimTimer -= 0.12;
+      const animRate = Math.max(0.85, Math.min(2.0, this.stats.moveSpeed * clampMag));
+      this.playerAnimTimer += dt * animRate;
+      if (this.playerAnimTimer >= 0.105) {
+        this.playerAnimTimer -= 0.105;
         this.playerAnimFrame = (((this.playerAnimFrame + 1) & 3) as 0 | 1 | 2 | 3);
       }
     } else {
@@ -959,10 +992,192 @@ export class GameSimulation {
     }
   }
 
+  private hasEvolutionSynergyForOption(opt: DraftOption): boolean {
+    if (opt.kind !== 'weapon' && opt.kind !== 'passive') return false;
+    const heldWeapons = new Set(this.weaponSystem.slots.map((s) => s.weaponId));
+    const heldPassives = this.progression.passives;
+
+    for (let i = 0; i < this.catalog.evolutions.length; i++) {
+      const recipe = this.catalog.evolutions[i]!;
+      if (heldWeapons.has(recipe.evolvedId)) continue;
+      if (opt.kind === 'weapon') {
+        if (recipe.baseWeapon === opt.itemId) {
+          if (
+            (recipe.partnerWeapon && heldWeapons.has(recipe.partnerWeapon)) ||
+            (recipe.requiredPassive && heldPassives.has(recipe.requiredPassive))
+          ) {
+            return true;
+          }
+        } else if (
+          recipe.partnerWeapon === opt.itemId &&
+          heldWeapons.has(recipe.baseWeapon)
+        ) {
+          return true;
+        }
+      } else if (
+        recipe.requiredPassive === opt.itemId &&
+        heldWeapons.has(recipe.baseWeapon)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private pickAutoDraftOption(draft: DraftModalState): DraftOption | null {
+    if (draft.mode !== 'level_up' || draft.options.length === 0) return null;
+
+    const allConsumables = draft.options.every((o) => o.kind === 'consumable');
+    if (allConsumables) {
+      if (this.autoLevelUpMode === 'gold_bag') {
+        return (
+          draft.options.find((o) => o.optionId === 'consumable:gold_bag') ??
+          draft.options[0]!
+        );
+      }
+      if (this.autoLevelUpMode === 'roast_chicken') {
+        return (
+          draft.options.find((o) => o.optionId === 'consumable:roast_chicken') ??
+          draft.options[0]!
+        );
+      }
+      if (this.autoLevelUpMode === 'smart') {
+        const needHeal = this.hp < this.stats.maxHp * 0.75;
+        return needHeal
+          ? draft.options.find((o) => o.optionId === 'consumable:roast_chicken') ??
+              draft.options[0]!
+          : draft.options.find((o) => o.optionId === 'consumable:gold_bag') ??
+              draft.options[0]!;
+      }
+      return null;
+    }
+
+    if (this.autoLevelUpMode !== 'smart') {
+      return null;
+    }
+
+    const needHeal = this.hp < this.stats.maxHp * 0.75;
+    let bestOpt = draft.options[0]!;
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < draft.options.length; i++) {
+      const opt = draft.options[i]!;
+      let score = 0;
+      if (this.hasEvolutionSynergyForOption(opt)) {
+        score += 500;
+      }
+      if (opt.kind === 'weapon' && !opt.isNew) {
+        score += 240 + opt.currentLevel * 12;
+      } else if (opt.kind === 'limit_break') {
+        score +=
+          210 +
+          (opt.optionId.endsWith(':amount')
+            ? 20
+            : opt.optionId.endsWith(':might')
+              ? 15
+              : opt.optionId.endsWith(':cooldown')
+                ? 10
+                : 5);
+      } else if (opt.kind === 'passive' && !opt.isNew) {
+        score += 170 + opt.currentLevel * 10;
+      } else if (opt.kind === 'weapon' && opt.isNew) {
+        score += 140;
+      } else if (opt.kind === 'passive' && opt.isNew) {
+        score += 115;
+      } else if (opt.kind === 'consumable') {
+        if (opt.itemId === 'roast_chicken') {
+          score += needHeal ? 60 : 40;
+        } else {
+          score += needHeal ? 50 : 60;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestOpt = opt;
+      }
+    }
+
+    return bestOpt;
+  }
+
+  private applyAutoDraftChoice(opt: DraftOption): boolean {
+    if (this.progression.activeDraft?.banishModeActive) {
+      this.progression.activeDraft.banishModeActive = false;
+    }
+    const ok = this.progression.chooseDraftOption(
+      opt.optionId,
+      this.stats,
+      this.weaponSystem,
+      this.createProgressionHooks(),
+    );
+    if (!ok) return false;
+    const prevMax = this.stats.maxHp;
+    this.stats = this.recomputeStats();
+    this.statsDirty = false;
+    if (this.stats.maxHp > prevMax) {
+      this.hp = Math.min(this.stats.maxHp, this.hp + (this.stats.maxHp - prevMax));
+    }
+    this.progression.pendingLevelUps = Math.max(
+      0,
+      this.progression.pendingLevelUps - 1,
+    );
+    return true;
+  }
+
+  private emitAutoLevelUpFeedback(opt: DraftOption, count: number): void {
+    const label =
+      opt.kind === 'consumable'
+        ? opt.itemId === 'gold_bag'
+          ? `自动: 钱袋${count > 1 ? ` x${count}` : ''}`
+          : `自动: 烤鸡${count > 1 ? ` x${count}` : ''}`
+        : count > 1
+          ? `自动连升 ${count} 级 · ${opt.title}`
+          : `自动: ${opt.title} Lv.${opt.nextLevel}`;
+    this.pushFloatingText(this.playerX, this.playerY - 38, label, 'status');
+    this.pushAudioCue(
+      opt.kind === 'consumable'
+        ? { type: 'pickup', kind: opt.itemId === 'gold_bag' ? 'coin' : 'chicken' }
+        : { type: 'ui_buy' },
+    );
+  }
+
   private openNextLevelUpDraft(): void {
-    this.progression.buildLevelUpDraft(this.stats, this.weaponSystem, this.rng);
-    this.phase = 'level_up';
-    this.pushAudioCue({ type: 'level_up', level: this.progression.level });
+    let lastAutoOpt: DraftOption | null = null;
+    let autoCount = 0;
+
+    for (let guard = 0; guard < 64 && this.progression.pendingLevelUps > 0; guard++) {
+      const draft = this.progression.buildLevelUpDraft(
+        this.stats,
+        this.weaponSystem,
+        this.rng,
+      );
+      if (this.autoLevelUpMode !== 'off') {
+        const chosen = this.pickAutoDraftOption(draft);
+        if (chosen && this.applyAutoDraftChoice(chosen)) {
+          lastAutoOpt = chosen;
+          autoCount += 1;
+          continue;
+        }
+      }
+      if (lastAutoOpt) {
+        this.emitAutoLevelUpFeedback(lastAutoOpt, autoCount);
+      }
+      this.phase = 'level_up';
+      this.pushAudioCue({ type: 'level_up', level: this.progression.level });
+      return;
+    }
+
+    if (lastAutoOpt) {
+      this.emitAutoLevelUpFeedback(lastAutoOpt, autoCount);
+    }
+    if (this.progression.pendingLevelUps > 0) {
+      this.progression.buildLevelUpDraft(this.stats, this.weaponSystem, this.rng);
+      this.phase = 'level_up';
+      this.pushAudioCue({ type: 'level_up', level: this.progression.level });
+    } else {
+      this.phase = 'playing';
+    }
   }
 
   private enterSettlement(victory: boolean): void {
@@ -1496,6 +1711,7 @@ export class GameSimulation {
     hud.endless = this.config.endless;
     hud.endlessCycle = this.waveDirector.endlessCycle;
     hud.funMode = this.config.funMode;
+    hud.autoLevelUpMode = this.autoLevelUpMode;
     const hasMilkyWayMap = this.progression.collectedRelics.has('relic_map');
     hud.hasMilkyWayMap = hasMilkyWayMap;
     if (hasMilkyWayMap) {
@@ -1507,10 +1723,14 @@ export class GameSimulation {
     }
 
     fs.bossBar = this.findActiveBossBar();
-    fs.draftModal =
+    const activeDraft =
       this.phase === 'level_up' || this.phase === 'arcana_select'
         ? this.progression.activeDraft
         : null;
+    if (activeDraft) {
+      activeDraft.autoLevelUpMode = this.autoLevelUpMode;
+    }
+    fs.draftModal = activeDraft;
     fs.chestModal = this.phase === 'chest' ? this.progression.activeChest : null;
     fs.reviveModal =
       this.phase === 'revive'

@@ -1175,6 +1175,72 @@ describe('Zero-GC Pooling & Reusable Frame Buffers', () => {
     expect(dmgCasual).toBeLessThan(dmgStd);
     expect(simCasual.getRenderFrame().hud.funMode?.preset).toBe('casual');
   });
+
+  it('resolves upgrades & late-game consumables without modal interruption when autoLevelUpMode is active, and persists mouseFollow safely', () => {
+    const store = new SaveStore(CATALOG, new MemoryStorage());
+    expect(store.getState().settings.mouseFollow).toBe(false);
+    store.updateSettings({ mouseFollow: true });
+    expect(store.getState().settings.mouseFollow).toBe(true);
+
+    const legacyObj = JSON.parse(store.exportJson()) as {
+      settings: Record<string, unknown>;
+    };
+    delete legacyObj.settings.mouseFollow;
+    const legacyJson = JSON.stringify(legacyObj);
+    const imported = new SaveStore(CATALOG, new MemoryStorage());
+    expect(imported.importJson(legacyJson).ok).toBe(true);
+    expect(imported.getState().settings.mouseFollow).toBe(false);
+
+    const save = createDefaultSaveState(CATALOG);
+    const sim = new GameSimulation(makeRunConfig({ limitBreakEnabled: false }), save, CATALOG);
+
+    // Enable smart auto-pick -> multi-level XP bursts resolve cleanly without entering level_up modal
+    const f0 = sim.dispatch({ type: 'set_auto_level_up', mode: 'smart' });
+    expect(f0.hud.autoLevelUpMode).toBe('smart');
+
+    sim.progression.grantXp(40);
+    const phaseAfterXp = sim.stepTick(0, 0, FIXED_DT);
+    expect(phaseAfterXp).toBe('playing');
+    expect(sim.progression.level).toBeGreaterThan(2);
+    expect(sim.progression.pendingLevelUps).toBe(0);
+
+    // Fill all 6 weapon & passive slots at max level to reach late-game consumable loop (钱袋/烤鸡)
+    sim.weaponSystem.slots.length = 0;
+    for (const wId of ['whip', 'magic_wand', 'knife', 'axe', 'cross', 'king_bible'] as const) {
+      const def = CATALOG.weapons[wId];
+      for (let lv = 0; lv < def.maxLevel; lv++) {
+        sim.weaponSystem.addOrUpgradeWeapon(wId);
+      }
+    }
+    sim.progression.passives.clear();
+    for (const pId of ['spinach', 'armor', 'hollow_heart', 'empty_tome', 'bracer', 'duplicator'] as const) {
+      sim.progression.passives.set(pId, CATALOG.passives[pId].maxLevel);
+    }
+
+    // Back to 'off' -> triggers normal level_up consumable draft
+    sim.dispatch({ type: 'set_auto_level_up', mode: 'off' });
+    sim.progression.grantXp(250);
+    sim.stepTick(0, 0, FIXED_DT);
+    expect(sim.phase).toBe('level_up');
+    const draft = sim.getRenderFrame().draftModal!;
+    expect(draft.options.every((o) => o.kind === 'consumable')).toBe(true);
+
+    // Switching to 'gold_bag' from inside consumable draft resolves immediately and increases gold
+    const goldBefore = sim.progression.goldEarned;
+    const afterGoldAuto = sim.dispatch({ type: 'set_auto_level_up', mode: 'gold_bag' });
+    expect(afterGoldAuto.phase).toBe('playing');
+    expect(afterGoldAuto.hud.autoLevelUpMode).toBe('gold_bag');
+    expect(sim.progression.goldEarned).toBeGreaterThan(goldBefore);
+
+    // Subsequent XP level-ups keep phase playing; 'smart' heals when below 75% HP
+    sim.hp = Math.floor(sim.stats.maxHp * 0.4);
+    sim.dispatch({ type: 'set_auto_level_up', mode: 'smart' });
+    const hpBefore = sim.hp;
+    sim.progression.grantXp(500);
+    const phaseLate = sim.stepTick(0, 0, FIXED_DT);
+    expect(phaseLate).toBe('playing');
+    expect(sim.hp).toBeGreaterThan(hpBefore);
+  });
 });
 
 describe('Performance & Determinism Benchmark', () => {

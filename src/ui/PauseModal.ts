@@ -1,5 +1,6 @@
 import type {
   AudioAndDisplaySettings,
+  AutoLevelUpMode,
   Catalog,
   PassiveId,
   PauseSnapshot,
@@ -22,7 +23,9 @@ export interface PauseModalDeps {
   frame: RenderFrameState;
   pause: PauseSnapshot;
   settings: AudioAndDisplaySettings;
+  autoLevelUpMode?: AutoLevelUpMode;
   onUpdateSettings: (opts: Partial<AudioAndDisplaySettings>) => void;
+  onSetAutoLevelUp?: (mode: AutoLevelUpMode) => void;
   onResume: () => void;
   onRetire: () => void;
 }
@@ -343,6 +346,42 @@ export function renderPauseModal(deps: PauseModalDeps): PauseModalHandle {
     },
   });
 
+  let mouseFollow = Boolean(settings.mouseFollow);
+  const mouseFollowToggleBtn = el('button', {
+    className: `gothic-btn ${mouseFollow ? 'gothic-btn-gold' : ''}`,
+    text: mouseFollow ? '开启' : '关闭',
+    dataset: { testid: 'btn-pause-mouse-follow' },
+    onClick: () => {
+      mouseFollow = !mouseFollow;
+      mouseFollowToggleBtn.textContent = mouseFollow ? '开启' : '关闭';
+      mouseFollowToggleBtn.classList.toggle('gothic-btn-gold', mouseFollow);
+      deps.onUpdateSettings({ mouseFollow });
+    },
+  });
+
+  const AUTO_MODES: readonly AutoLevelUpMode[] = ['off', 'smart', 'gold_bag', 'roast_chicken'];
+  const autoModeLabel = (m: AutoLevelUpMode): string =>
+    m === 'smart'
+      ? '⚡ 智能选牌'
+      : m === 'gold_bag'
+        ? '🪙 总是钱袋'
+        : m === 'roast_chicken'
+          ? '🍗 总是烤鸡'
+          : '手动选择';
+  let autoMode: AutoLevelUpMode = deps.autoLevelUpMode ?? frame.hud.autoLevelUpMode ?? 'off';
+  const autoLevelToggleBtn = el('button', {
+    className: `gothic-btn ${autoMode !== 'off' ? 'gothic-btn-gold' : ''}`,
+    text: autoModeLabel(autoMode),
+    dataset: { testid: 'btn-pause-auto-level' },
+    onClick: () => {
+      const nextIdx = (AUTO_MODES.indexOf(autoMode) + 1) % AUTO_MODES.length;
+      autoMode = AUTO_MODES[nextIdx]!;
+      autoLevelToggleBtn.textContent = autoModeLabel(autoMode);
+      autoLevelToggleBtn.classList.toggle('gothic-btn-gold', autoMode !== 'off');
+      deps.onSetAutoLevelUp?.(autoMode);
+    },
+  });
+
   const loadoutStrip = el('div', {
     className: 'hud-slot-strip pause-loadout-strip',
     dataset: { testid: 'pause-loadout-strip' },
@@ -435,6 +474,14 @@ export function renderPauseModal(deps: PauseModalDeps): PauseModalHandle {
       el('div', {
         className: 'switch-row',
         children: ['战场实时小雷达', minimapToggleBtn],
+      }),
+      el('div', {
+        className: 'switch-row',
+        children: ['单手鼠标跟随 [F]', mouseFollowToggleBtn],
+      }),
+      el('div', {
+        className: 'switch-row',
+        children: ['升级自动托管 [T]', autoLevelToggleBtn],
       }),
     ],
   });

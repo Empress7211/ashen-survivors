@@ -94,6 +94,7 @@ export function createDefaultSettings(): AudioAndDisplaySettings {
     screenShake: true,
     visualEffectsQuality: 'high',
     showMinimap: true,
+    mouseFollow: false,
     language: 'zh-CN',
   };
 }
@@ -498,6 +499,10 @@ export function sanitizeSaveState(raw: unknown, catalog: Catalog): SaveState {
       typeof rawSettings.showMinimap === 'boolean'
         ? rawSettings.showMinimap
         : defaultSettings.showMinimap,
+    mouseFollow:
+      typeof rawSettings.mouseFollow === 'boolean'
+        ? rawSettings.mouseFollow
+        : defaultSettings.mouseFollow,
     language: 'zh-CN',
   };
 

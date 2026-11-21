@@ -1,6 +1,7 @@
 import type {
   AchievementDef,
   ArcanaId,
+  AutoLevelUpMode,
   Catalog,
   HudSnapshot,
   PassiveSlotSnapshot,
@@ -195,6 +196,8 @@ export interface BattleHudDeps {
   isMuted: () => boolean;
   onToggleMute: () => void;
   onTogglePause: () => void;
+  onToggleMouseFollow?: () => void;
+  onDisableAutoLevelUp?: () => void;
 }
 
 export class BattleHudView {
@@ -213,12 +216,14 @@ export class BattleHudView {
   private readonly bossFill: HTMLElement;
   private readonly timerEl: HTMLElement;
   private readonly modeTagsEl: HTMLElement;
+  private readonly autoLevelPill: HTMLButtonElement;
   private readonly killsEl: HTMLElement;
   private readonly goldEl: HTMLElement;
   private readonly enemyCountEl: HTMLElement;
   private readonly hpTextEl: HTMLElement;
   private readonly hpFillEl: HTMLElement;
   private readonly fpsEl: HTMLElement;
+  private readonly mouseFollowBtn: HTMLButtonElement;
   private readonly muteBtn: HTMLButtonElement;
   private readonly toastStack: HTMLElement;
   private readonly minimapWrap: HTMLElement;
@@ -242,6 +247,8 @@ export class BattleHudView {
   private lastHpRatioKey = '';
   private lastHpText = '';
   private lastMuted: boolean | null = null;
+  private lastMouseFollow: boolean | null = null;
+  private lastAutoMode: AutoLevelUpMode | null = null;
   private lastFpsText = '';
   private lastMinimapTick = -1;
   private lastShowMinimap: boolean | null = null;
@@ -294,6 +301,29 @@ export class BattleHudView {
       text: '00:00',
     });
     this.modeTagsEl = el('div', { className: 'title-meta-pills' });
+    this.autoLevelPill = el('button', {
+      className: 'hud-auto-pill',
+      text: '⚡ 自动选牌中 [T]',
+      attrs: {
+        title: '正在自动托管升级，点击或按 T 恢复手动选牌',
+        'aria-label': '关闭升级自动托管',
+      },
+      dataset: { testid: 'btn-hud-auto-level' },
+      onClick: () => deps.onDisableAutoLevelUp?.(),
+    });
+    this.autoLevelPill.style.display = 'none';
+
+    this.mouseFollowBtn = el('button', {
+      className: 'hud-icon-btn',
+      text: '🖱️',
+      attrs: {
+        title: '单手鼠标跟随移动 [F]',
+        'aria-label': '单手鼠标跟随开关',
+        'aria-pressed': 'false',
+      },
+      dataset: { testid: 'btn-hud-mouse-follow' },
+      onClick: () => deps.onToggleMouseFollow?.(),
+    });
 
     this.muteBtn = el('button', {
       className: 'hud-icon-btn',
@@ -371,11 +401,11 @@ export class BattleHudView {
               children: [
                 el('div', {
                   className: 'hud-clock-row',
-                  children: [this.timerEl, this.muteBtn, pauseBtn],
+                  children: [this.timerEl, this.mouseFollowBtn, this.muteBtn, pauseBtn],
                 }),
                 el('div', {
                   className: 'title-meta-pills',
-                  children: [this.modeTagsEl, this.fpsEl],
+                  children: [this.autoLevelPill, this.modeTagsEl, this.fpsEl],
                 }),
                 el('div', {
                   className: 'hud-counters-row',
@@ -428,11 +458,13 @@ export class BattleHudView {
   update(
     frame: RenderFrameState,
     muted: boolean,
-    options?: boolean | { showMinimap?: boolean },
+    options?: boolean | { showMinimap?: boolean; mouseFollow?: boolean },
   ): void {
     const { hud, bossBar } = frame;
     const showMinimap =
       typeof options === 'boolean' ? options : options?.showMinimap ?? true;
+    const mouseFollow =
+      typeof options === 'boolean' ? false : options?.mouseFollow ?? false;
 
     const xpRatio = hud.xpToNextLevel > 0 ? Math.max(0, Math.min(1, hud.xp / hud.xpToNextLevel)) : 0;
     const xpKey = xpRatio.toFixed(3);
@@ -487,6 +519,28 @@ export class BattleHudView {
     if (muted !== this.lastMuted) {
       this.lastMuted = muted;
       this.muteBtn.textContent = muted ? '🔇' : '🔊';
+    }
+
+    if (mouseFollow !== this.lastMouseFollow) {
+      this.lastMouseFollow = mouseFollow;
+      this.mouseFollowBtn.classList.toggle('active', mouseFollow);
+      this.mouseFollowBtn.setAttribute('aria-pressed', mouseFollow ? 'true' : 'false');
+    }
+
+    const autoMode: AutoLevelUpMode = hud.autoLevelUpMode ?? 'off';
+    if (autoMode !== this.lastAutoMode) {
+      this.lastAutoMode = autoMode;
+      if (autoMode === 'off') {
+        this.autoLevelPill.style.display = 'none';
+      } else {
+        this.autoLevelPill.style.display = 'inline-flex';
+        this.autoLevelPill.textContent =
+          autoMode === 'gold_bag'
+            ? '🪙 自动拿钱袋 [T]'
+            : autoMode === 'roast_chicken'
+              ? '🍗 自动吃烤鸡 [T]'
+              : '⚡ 自动选牌中 [T]';
+      }
     }
 
     this.syncModeTags(hud);
@@ -667,6 +721,28 @@ export class BattleHudView {
     window.setTimeout(() => {
       toast.remove();
     }, 4500);
+  }
+
+  pushInfoToast(title: string, subtitle?: string): void {
+    while (this.toastStack.children.length >= 2) {
+      this.toastStack.firstElementChild?.remove();
+    }
+    const toast = el('div', {
+      className: 'achievement-toast info-toast',
+      children: [
+        el('div', {
+          className: 'codex-info',
+          children: [
+            el('span', { className: 'codex-name', text: title }),
+            subtitle ? el('span', { className: 'codex-desc', text: subtitle }) : null,
+          ],
+        }),
+      ],
+    });
+    this.toastStack.appendChild(toast);
+    window.setTimeout(() => {
+      toast.remove();
+    }, 2200);
   }
 
   private syncModeTags(hud: HudSnapshot): void {

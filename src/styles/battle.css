@@ -364,6 +364,34 @@
   background: rgba(34, 27, 46, 0.95);
 }
 
+.hud-icon-btn.active {
+  border-color: var(--gold-bright);
+  background: rgba(68, 48, 22, 0.94);
+  box-shadow: 0 0 12px rgba(244, 216, 125, 0.45);
+}
+
+.hud-auto-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 216, 125, 0.72);
+  background: linear-gradient(135deg, rgba(64, 46, 16, 0.94), rgba(32, 22, 12, 0.96));
+  color: #ffe8a3;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(244, 216, 125, 0.25);
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.hud-auto-pill:hover {
+  transform: translateY(-1px);
+  border-color: #fff1bd;
+  box-shadow: 0 0 14px rgba(244, 216, 125, 0.45);
+}
+
 .hud-counters-row {
   display: flex;
   align-items: center;
@@ -699,6 +727,42 @@
   width: 18px;
   height: 18px;
   object-fit: contain;
+}
+
+.draft-auto-banner {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(244, 216, 125, 0.55);
+  background: linear-gradient(135deg, rgba(46, 33, 18, 0.92), rgba(20, 15, 28, 0.96));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.draft-auto-banner-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.draft-auto-banner-head .codex-desc {
+  margin: 0;
+  color: #f3e4c3;
+}
+
+.draft-auto-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.achievement-toast.info-toast {
+  min-width: 220px;
+  max-width: 340px;
+  padding: 9px 14px;
+  border-color: rgba(244, 216, 125, 0.72);
 }
 
 /* Treasure Chest Jackpot Modal */

@@ -1,4 +1,4 @@
-import type { Catalog, DraftModalState, HudSnapshot } from '../contracts/index.ts';
+import type { AutoLevelUpMode, Catalog, DraftModalState, HudSnapshot } from '../contracts/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { iconUrl, resolveDraftSynergy } from '../app/formatters.ts';
 
@@ -11,6 +11,7 @@ export interface DraftModalDeps {
   onReroll: () => void;
   onSkip: () => void;
   onToggleBanish: () => void;
+  onSetAutoMode?: (mode: AutoLevelUpMode) => void;
 }
 
 export function renderDraftModal(deps: DraftModalDeps): HTMLElement {
@@ -96,6 +97,54 @@ export function renderDraftModal(deps: DraftModalDeps): HTMLElement {
     optionsList.appendChild(card);
   });
 
+  const isConsumableOnly =
+    !isArcana &&
+    draft.options.length > 0 &&
+    draft.options.every((opt) => opt.kind === 'consumable');
+
+  const consumableAutoBanner =
+    isConsumableOnly && deps.onSetAutoMode
+      ? el('div', {
+          className: 'draft-auto-banner',
+          dataset: { testid: 'draft-consumable-auto-bar' },
+          children: [
+            el('div', {
+              className: 'draft-auto-banner-head',
+              children: [
+                el('span', { className: 'tag-badge tag-badge-gold', text: '后期满配自动托管' }),
+                el('p', {
+                  className: 'codex-desc',
+                  text: '装备已满级！开启后后续升级将自动结算并头顶提示，不再反复弹窗打断割草（随时按 T 或点右上角关闭）：',
+                }),
+              ],
+            }),
+            el('div', {
+              className: 'draft-auto-banner-actions',
+              children: [
+                el('button', {
+                  className: 'gothic-btn gothic-btn-primary',
+                  text: '⚡ 智能托管（残血吃鸡/满血拿钱）',
+                  dataset: { testid: 'btn-draft-auto-smart' },
+                  onClick: () => deps.onSetAutoMode?.('smart'),
+                }),
+                el('button', {
+                  className: 'gothic-btn gothic-btn-gold',
+                  text: '🪙 总是选择钱袋',
+                  dataset: { testid: 'btn-draft-always-gold' },
+                  onClick: () => deps.onSetAutoMode?.('gold_bag'),
+                }),
+                el('button', {
+                  className: 'gothic-btn',
+                  text: '🍗 总是选择烤鸡',
+                  dataset: { testid: 'btn-draft-always-chicken' },
+                  onClick: () => deps.onSetAutoMode?.('roast_chicken'),
+                }),
+              ],
+            }),
+          ],
+        })
+      : null;
+
   const footerActions = el('div', {
     className: 'title-meta-pills',
     children: [
@@ -122,6 +171,17 @@ export function renderDraftModal(deps: DraftModalDeps): HTMLElement {
             attrs: { disabled: !draft.banishModeActive && draft.banishesRemaining <= 0 },
             dataset: { testid: 'btn-draft-banish' },
             onClick: () => deps.onToggleBanish(),
+          })
+        : null,
+      !isArcana && deps.onSetAutoMode
+        ? el('button', {
+            className: 'gothic-btn gothic-btn-gold',
+            text: '⚡ 自动选牌 [T]',
+            attrs: {
+              title: '开启后自动优先进化共鸣、已有装备与突破并跳过后续弹窗（按 T 或点右上角胶囊可恢复手动）',
+            },
+            dataset: { testid: 'btn-draft-auto-toggle' },
+            onClick: () => deps.onSetAutoMode?.('smart'),
           })
         : null,
     ],
@@ -152,7 +212,7 @@ export function renderDraftModal(deps: DraftModalDeps): HTMLElement {
                     className: 'modal-subtitle',
                     text: isArcana
                       ? 'ARCANA TAROT DRAFT · 按数字键 1-4 或手柄 A 确认 / X 重随'
-                      : 'LEVEL UP · 按数字键 1-4 或手柄 A 选择 / X 重随 / Y 放逐',
+                      : 'LEVEL UP · 按数字键 1-4 或手柄 A 选择 / T 自动选牌 / X 重随 / Y 放逐',
                   }),
                 ],
               }),
@@ -162,7 +222,7 @@ export function renderDraftModal(deps: DraftModalDeps): HTMLElement {
               }),
             ],
           }),
-          el('div', { className: 'modal-body', children: [optionsList] }),
+          el('div', { className: 'modal-body', children: [optionsList, consumableAutoBanner] }),
           el('footer', {
             className: 'modal-footer',
             children: [
@@ -170,7 +230,7 @@ export function renderDraftModal(deps: DraftModalDeps): HTMLElement {
                 className: 'codex-desc',
                 text: draft.banishModeActive
                   ? '放逐后该装备在本局将不再出现。'
-                  : '提示：持有同进化配方武器/被动时，卡牌下方会高亮显示进化共鸣。',
+                  : '提示：持有同进化配方武器/被动时，卡牌下方会高亮显示进化共鸣；按 T 开启自动选牌托管。',
               }),
               footerActions,
             ],

@@ -184,6 +184,23 @@ export function renderSettingsModal(deps: SettingsModalDeps): HTMLElement {
             }),
           ],
         }),
+        el('div', {
+          className: 'switch-row',
+          children: [
+            '单手鼠标跟随移动 [F]',
+            el('button', {
+              className: `gothic-btn ${s.mouseFollow ? 'gothic-btn-gold' : ''}`,
+              text: s.mouseFollow ? '开启' : '关闭',
+              dataset: { testid: 'btn-settings-mouse-follow' },
+              onClick: () => {
+                onCue({ type: 'ui_click' });
+                saveStore.updateSettings({ mouseFollow: !s.mouseFollow });
+                deps.onSettingsChanged();
+                renderContent();
+              },
+            }),
+          ],
+        }),
       ],
     });
 

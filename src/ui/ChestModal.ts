@@ -16,7 +16,7 @@ export interface ChestModalHandle {
 export function renderChestModal(deps: ChestModalDeps): ChestModalHandle {
   const { chest } = deps;
   const openedAt = performance.now();
-  const minWaitMs = 1000;
+  const minWaitMs = 300;
 
   const closeBtn = el('button', {
     className: 'gothic-btn gothic-btn-gold',
@@ -54,7 +54,7 @@ export function renderChestModal(deps: ChestModalDeps): ChestModalHandle {
         el('p', { className: 'codex-desc', text: item.description }),
       ],
     });
-    card.style.animationDelay = `${index * 160}ms`;
+    card.style.animationDelay = `${index * 90}ms`;
     itemsGrid.appendChild(card);
   });
 
@@ -112,7 +112,7 @@ export function renderChestModal(deps: ChestModalDeps): ChestModalHandle {
           el('footer', {
             className: 'modal-footer',
             children: [
-              el('span', { className: 'codex-desc', text: '1 秒后可按 Space / Enter 或点击关闭' }),
+              el('span', { className: 'codex-desc', text: '按 Space / Enter 或点击收下宝物' }),
               closeBtn,
             ],
           }),
