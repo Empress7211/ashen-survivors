@@ -1,10 +1,12 @@
 import type {
+  ArcanaId,
   AudioCue,
   BossBarState,
   Catalog,
   ChestModalState,
   DraftModalState,
   EnemyId,
+  PassiveSlotSnapshot,
   PauseEvolutionHint,
   PauseMapMarker,
   PauseSnapshot,
@@ -27,6 +29,7 @@ import type {
   SimulationAction,
   StatBlock,
   WeaponId,
+  WeaponSlotSnapshot,
 } from '../contracts/index.ts';
 import { CATALOG } from '../data/index.ts';
 import { EnemySystem } from './EnemySystem.ts';
@@ -106,6 +109,16 @@ export class GameSimulation {
   private readonly frameProps: RenderPropState[] = [];
   private readonly frameFloatingTexts: RenderFloatingText[] = [];
   private readonly frameAudioCues: AudioCue[] = [];
+  private readonly frameHudWeapons: WeaponSlotSnapshot[] = [];
+  private readonly frameHudPassives: PassiveSlotSnapshot[] = [];
+  private readonly frameHudArcanas: ArcanaId[] = [];
+  private readonly frameMapMarkers: PauseMapMarker[] = [];
+  private readonly frameBossBar: BossBarState = {
+    enemyId: 'boss_giant_bat',
+    name: '',
+    hp: 0,
+    maxHp: 0,
+  };
   private readonly framePlayer: RenderPlayerState;
   private readonly frameScreenFlash = { color: 0, alpha: 0 };
   private readonly frameState: RenderFrameState;
@@ -192,9 +205,9 @@ export class GameSimulation {
         maxHp: this.stats.maxHp,
         kills: 0,
         goldEarned: 0,
-        weapons: [],
-        passives: [],
-        arcanas: [],
+        weapons: this.frameHudWeapons,
+        passives: this.frameHudPassives,
+        arcanas: this.frameHudArcanas,
         rerollsRemaining: util.rerolls,
         skipsRemaining: util.skips,
         banishesRemaining: util.banishes,
@@ -205,6 +218,8 @@ export class GameSimulation {
         hurry: config.hurry,
         endless: config.endless,
         endlessCycle: 0,
+        hasMilkyWayMap: false,
+        mapMarkers: undefined,
       },
       bossBar: null,
       draftModal: null,
@@ -264,6 +279,8 @@ export class GameSimulation {
     }
 
     this.tick += 1;
+    this.progression.lastPlayerX = this.playerX;
+    this.progression.lastPlayerY = this.playerY;
 
     // Recompute dynamic stats (supports oscillating Arcanas XVII/XVIII, Divine Bloodline, etc.)
     const prevMaxHp = this.stats.maxHp;
@@ -280,6 +297,8 @@ export class GameSimulation {
 
     // 1. Player movement & corridor/prop clamping
     this.updatePlayerMovement(inputX, inputY, dt);
+    this.progression.lastPlayerX = this.playerX;
+    this.progression.lastPlayerY = this.playerY;
 
     // 2. Player HP Recovery
     if (this.stats.recovery > 0 && this.hp > 0 && this.hp < this.stats.maxHp) {
@@ -1152,6 +1171,68 @@ export class GameSimulation {
     }
   }
 
+  private fillMapMarkers(out: PauseMapMarker[], includePickups: boolean): void {
+    let cursor = 0;
+    const heroName = this.catalog.heroes[this.config.heroId].name;
+    let playerSlot = out[cursor];
+    if (!playerSlot) {
+      playerSlot = {
+        label: heroName,
+        kind: 'player',
+        itemId: undefined,
+        x: this.playerX,
+        y: this.playerY,
+      };
+      out.push(playerSlot);
+    } else {
+      playerSlot.label = heroName;
+      playerSlot.kind = 'player';
+      playerSlot.itemId = undefined;
+      playerSlot.x = this.playerX;
+      playerSlot.y = this.playerY;
+    }
+    cursor++;
+
+    if (includePickups) {
+      const pickups = this.progression.pickups;
+      for (let i = 0; i < pickups.length; i++) {
+        const p = pickups[i]!;
+        let kind: PauseMapMarker['kind'] | null = null;
+        let label = '';
+        if (p.kind === 'passive') {
+          kind = 'passive';
+          label = this.catalog.passives[p.itemId as import('../contracts/ids.ts').PassiveId].name;
+        } else if (p.kind === 'relic') {
+          kind = 'relic';
+          label = this.catalog.relics[p.itemId as RelicId].name;
+        } else if (p.chestTier) {
+          kind = 'pickup';
+          label = '宝箱';
+        }
+        if (!kind) continue;
+        let slot = out[cursor];
+        if (!slot) {
+          slot = {
+            label,
+            kind,
+            itemId: p.itemId,
+            x: p.x,
+            y: p.y,
+          };
+          out.push(slot);
+        } else {
+          slot.label = label;
+          slot.kind = kind;
+          slot.itemId = p.itemId;
+          slot.x = p.x;
+          slot.y = p.y;
+        }
+        cursor++;
+      }
+    }
+    out.length = cursor;
+  }
+
   private buildPauseSnapshot(): PauseSnapshot {
     const hasMilkyWayMap = this.progression.collectedRelics.has('relic_map');
     const hasGrimoire = this.progression.collectedRelics.has('relic_grimoire');
@@ -1191,44 +1272,8 @@ export class GameSimulation {
       });
     }
 
-    const mapMarkers: PauseMapMarker[] = [
-      {
-        label: this.catalog.heroes[this.config.heroId].name,
-        kind: 'player',
-        x: this.playerX,
-        y: this.playerY,
-      },
-    ];
-
-    if (hasMilkyWayMap) {
-      for (const p of this.progression.pickups) {
-        if (p.kind === 'passive') {
-          mapMarkers.push({
-            label: this.catalog.passives[p.itemId as import('../contracts/ids.ts').PassiveId].name,
-            kind: 'passive',
-            itemId: p.itemId,
-            x: p.x,
-            y: p.y,
-          });
-        } else if (p.kind === 'relic') {
-          mapMarkers.push({
-            label: this.catalog.relics[p.itemId as import('../contracts/ids.ts').RelicId].name,
-            kind: 'relic',
-            itemId: p.itemId,
-            x: p.x,
-            y: p.y,
-          });
-        } else if (p.chestTier) {
-          mapMarkers.push({
-            label: '宝箱',
-            kind: 'pickup',
-            itemId: p.itemId,
-            x: p.x,
-            y: p.y,
-          });
-        }
-      }
-    }
+    const mapMarkers: PauseMapMarker[] = [];
+    this.fillMapMarkers(mapMarkers, hasMilkyWayMap);
 
     return {
       stats: { ...this.stats },
@@ -1253,12 +1298,11 @@ export class GameSimulation {
       }
     }
     if (!best) return null;
-    return {
-      enemyId: best.enemyId,
-      name: this.catalog.enemies[best.enemyId].name,
-      hp: best.hp,
-      maxHp: best.maxHp,
-    };
+    this.frameBossBar.enemyId = best.enemyId;
+    this.frameBossBar.name = this.catalog.enemies[best.enemyId].name;
+    this.frameBossBar.hp = best.hp;
+    this.frameBossBar.maxHp = best.maxHp;
+    return this.frameBossBar;
   }
 
   private buildRenderFrameState(): RenderFrameState {
@@ -1424,9 +1468,17 @@ export class GameSimulation {
     hud.maxHp = this.stats.maxHp;
     hud.kills = this.progression.kills;
     hud.goldEarned = this.progression.goldEarned;
-    hud.weapons = this.weaponSystem.getSlotSnapshots();
-    hud.passives = this.progression.getPassiveSnapshots();
-    hud.arcanas = [...this.progression.arcanas];
+    this.weaponSystem.fillSlotSnapshots(this.frameHudWeapons);
+    hud.weapons = this.frameHudWeapons;
+    this.progression.fillPassiveSnapshots(this.frameHudPassives);
+    hud.passives = this.frameHudPassives;
+    const srcArcanas = this.progression.arcanas;
+    const dstArcanas = this.frameHudArcanas;
+    for (let i = 0; i < srcArcanas.length; i++) {
+      dstArcanas[i] = srcArcanas[i]!;
+    }
+    dstArcanas.length = srcArcanas.length;
+    hud.arcanas = dstArcanas;
     hud.rerollsRemaining = util.rerolls;
     hud.skipsRemaining = util.skips;
     hud.banishesRemaining = util.banishes;
@@ -1437,6 +1489,15 @@ export class GameSimulation {
     hud.hurry = this.config.hurry;
     hud.endless = this.config.endless;
     hud.endlessCycle = this.waveDirector.endlessCycle;
+    const hasMilkyWayMap = this.progression.collectedRelics.has('relic_map');
+    hud.hasMilkyWayMap = hasMilkyWayMap;
+    if (hasMilkyWayMap) {
+      this.fillMapMarkers(this.frameMapMarkers, true);
+      hud.mapMarkers = this.frameMapMarkers;
+    } else {
+      this.frameMapMarkers.length = 0;
+      hud.mapMarkers = undefined;
+    }
 
     fs.bossBar = this.findActiveBossBar();
     fs.draftModal =

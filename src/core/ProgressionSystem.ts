@@ -86,6 +86,7 @@ export class ProgressionSystem {
   readonly extraPassives = new Set<PassiveId>(); // stage ground passives allowed beyond 6 slots
   readonly arcanas: ArcanaId[] = [];
   readonly banishedItems = new Set<string>();
+  readonly sealedItems: Set<string>;
   readonly evolvedWeapons = new Set<WeaponId>();
   readonly defeatedBosses = new Set<EnemyId>();
   readonly collectedRelics = new Set<RelicId>();
@@ -93,6 +94,9 @@ export class ProgressionSystem {
   readonly runUnlockedAchievements: string[] = [];
   readonly runBestiaryKills: Partial<Record<EnemyId, number>> = {};
   readonly pickups: WorldPickup[] = [];
+
+  lastPlayerX = 0;
+  lastPlayerY = 0;
 
   pendingLevelUps = 0;
   rerollsConsumed = 0;
@@ -107,6 +111,8 @@ export class ProgressionSystem {
   private gemStreakTimer = 0;
   private madGrooveTimer = 0;
   private lastDraftOptionKeys = new Set<string>();
+  private readonly xpIndexScratch: number[] = [];
+  private readonly removeIndexScratch = new Set<number>();
 
   constructor(
     catalog: Catalog,
@@ -124,6 +130,7 @@ export class ProgressionSystem {
     this.heroId = options.heroId;
     this.limitBreakEnabled = options.limitBreakEnabled;
     this.arcanasEnabled = options.arcanasEnabled;
+    this.sealedItems = new Set(saveBaseline.sealedItems ?? []);
     for (const r of saveBaseline.unlockedRelics) {
       this.collectedRelics.add(r);
     }
@@ -151,14 +158,30 @@ export class ProgressionSystem {
 
   getPassiveSnapshots(): PassiveSlotSnapshot[] {
     const out: PassiveSlotSnapshot[] = [];
-    for (const [passiveId, level] of this.passives.entries()) {
-      out.push({
-        passiveId,
-        level,
-        maxLevel: this.catalog.passives[passiveId].maxLevel,
-      });
-    }
+    this.fillPassiveSnapshots(out);
     return out;
+  }
+
+  fillPassiveSnapshots(out: PassiveSlotSnapshot[]): void {
+    let cursor = 0;
+    for (const [passiveId, level] of this.passives.entries()) {
+      const maxLevel = this.catalog.passives[passiveId].maxLevel;
+      let slot = out[cursor];
+      if (!slot) {
+        slot = {
+          passiveId,
+          level,
+          maxLevel,
+        };
+        out.push(slot);
+      } else {
+        slot.passiveId = passiveId;
+        slot.level = level;
+        slot.maxLevel = maxLevel;
+      }
+      cursor++;
+    }
+    out.length = cursor;
   }
 
   getRegularPassiveCount(): number {
@@ -201,26 +224,29 @@ export class ProgressionSystem {
       chestOpen: false,
     };
     this.pickups.push(inst);
-
-    if (kind === 'pickup' && isXpGemId(itemId as PickupId)) {
-      this.consolidateExcessXpGems(x, y);
-    }
     return inst;
   }
 
   /**
-   * Consolidates excess offscreen XP gems when total XP gems > MAX_ACTIVE_XP_GEMS (400)
-   * without losing a single point of XP.
+   * Consolidates excess offscreen XP gems when total unmagnetized XP gems > MAX_ACTIVE_XP_GEMS (400)
+   * without losing a single point of XP, anchoring the merged gem at the farthest merged gem's position.
    */
-  consolidateExcessXpGems(playerX: number, playerY: number): void {
-    const xpIndices: number[] = [];
+  consolidateExcessXpGems(
+    playerX: number = this.lastPlayerX,
+    playerY: number = this.lastPlayerY,
+  ): void {
+    const xpIndices = this.xpIndexScratch;
+    xpIndices.length = 0;
     for (let i = 0; i < this.pickups.length; i++) {
       const p = this.pickups[i]!;
       if (p.kind === 'pickup' && isXpGemId(p.itemId as PickupId) && !p.magnetized) {
         xpIndices.push(i);
       }
     }
-    if (xpIndices.length <= MAX_ACTIVE_XP_GEMS) return;
+    if (xpIndices.length <= MAX_ACTIVE_XP_GEMS) {
+      xpIndices.length = 0;
+      return;
+    }
 
     // Sort indices by distance descending so farthest/offscreen gems merge first
     xpIndices.sort((ia, ib) => {
@@ -233,24 +259,25 @@ export class ProgressionSystem {
 
     const targetKeep = 350;
     const toMergeCount = xpIndices.length - targetKeep;
-    if (toMergeCount < 2) return;
+    if (toMergeCount < 2) {
+      xpIndices.length = 0;
+      return;
+    }
 
-    const removeSet = new Set<number>();
+    const anchor = this.pickups[xpIndices[0]!]!;
+    const anchorX = anchor.x;
+    const anchorY = anchor.y;
+
+    const removeSet = this.removeIndexScratch;
+    removeSet.clear();
     let totalMergedXp = 0;
-    let sumX = 0;
-    let sumY = 0;
 
     for (let k = 0; k < toMergeCount; k++) {
       const idx = xpIndices[k]!;
       const g = this.pickups[idx]!;
       removeSet.add(idx);
       totalMergedXp += g.value;
-      sumX += g.x;
-      sumY += g.y;
     }
-
-    const anchorX = sumX / toMergeCount;
-    const anchorY = sumY / toMergeCount;
 
     // Compact pickups removing merged indices
     let write = 0;
@@ -260,6 +287,8 @@ export class ProgressionSystem {
       }
     }
     this.pickups.length = write;
+    removeSet.clear();
+    xpIndices.length = 0;
 
     const tier: PickupId =
       totalMergedXp >= 150 ? 'xp_gold' : totalMergedXp >= 25 ? 'xp_red' : 'xp_green';
@@ -370,6 +399,9 @@ export class ProgressionSystem {
     rng: SeededRng,
     hooks: ProgressionHooks,
   ): { openChest: ChestModalState | null; openArcana: boolean } {
+    this.lastPlayerX = playerX;
+    this.lastPlayerY = playerY;
+
     if (this.gemStreakTimer > 0) {
       this.gemStreakTimer = Math.max(0, this.gemStreakTimer - dt);
       if (this.gemStreakTimer === 0) this.gemStreak = 0;
@@ -543,6 +575,19 @@ export class ProgressionSystem {
       i++;
     }
 
+    if (this.pickups.length > MAX_ACTIVE_XP_GEMS) {
+      let unmagnetizedXpCount = 0;
+      for (let k = 0; k < this.pickups.length; k++) {
+        const p = this.pickups[k]!;
+        if (p.kind === 'pickup' && isXpGemId(p.itemId as PickupId) && !p.magnetized) {
+          unmagnetizedXpCount++;
+        }
+      }
+      if (unmagnetizedXpCount > MAX_ACTIVE_XP_GEMS) {
+        this.consolidateExcessXpGems(playerX, playerY);
+      }
+    }
+
     return { openChest: openedChest, openArcana: openedArcana };
   }
 
@@ -612,7 +657,13 @@ export class ProgressionSystem {
 
     if (!weaponSlotsFull) {
       for (const wId of BASE_WEAPON_IDS) {
-        if (heldWeaponIds.has(wId) || this.banishedItems.has(wId)) continue;
+        if (
+          heldWeaponIds.has(wId) ||
+          this.banishedItems.has(wId) ||
+          this.sealedItems.has(wId)
+        ) {
+          continue;
+        }
         // Skip if evolved form already held
         if (this.hasEvolvedFormOf(wId, heldWeaponIds)) continue;
         const def = this.catalog.weapons[wId];
@@ -659,7 +710,13 @@ export class ProgressionSystem {
 
     if (!passiveSlotsFull) {
       for (const pId of PASSIVE_IDS) {
-        if (heldPassiveIds.has(pId) || this.banishedItems.has(pId)) continue;
+        if (
+          heldPassiveIds.has(pId) ||
+          this.banishedItems.has(pId) ||
+          this.sealedItems.has(pId)
+        ) {
+          continue;
+        }
         const def = this.catalog.passives[pId];
         candidates.push({
           option: {

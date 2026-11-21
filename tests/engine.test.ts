@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BASE_WEAPON_IDS,
   EVOLVED_WEAPON_IDS,
+  PASSIVE_IDS,
   WEAPON_IDS,
   type PassiveId,
   type RunStartConfig,
@@ -16,7 +18,9 @@ import {
   SpatialHashGrid,
   calculatePlayerStats,
   createDefaultSaveState,
+  sanitizeSaveState,
 } from '../src/core/index.ts';
+import { ProjectilePool, ZonePool } from '../src/core/WeaponSystem.ts';
 import { CATALOG } from '../src/data/index.ts';
 
 function makeRunConfig(overrides: Partial<RunStartConfig> = {}): RunStartConfig {
@@ -493,8 +497,49 @@ describe('Progression: All 14 Evolutions & Unions, Consolidation, Drafts, Limit 
       });
     }
 
+    // spawnPickup no longer sorts on every kill; consolidation runs on tick/direct call
+    expect(prog.pickups.length).toBe(totalSpawned);
+    prog.consolidateExcessXpGems(0, 0);
     expect(prog.pickups.length).toBeLessThanOrEqual(MAX_ACTIVE_XP_GEMS);
     expect(prog.getTotalFloorXp()).toBe(expectedXp);
+  });
+
+  it('merges a ring of 500 offscreen XP gems around (0,0) at offscreen anchor without teleporting to (0,0)', () => {
+    const save = createDefaultSaveState(CATALOG);
+    const sim = new GameSimulation(makeRunConfig(), save, CATALOG);
+
+    const ringCount = 500;
+    const ringRadius = 900;
+    let expectedXp = 0;
+    for (let i = 0; i < ringCount; i++) {
+      const theta = (i / ringCount) * Math.PI * 2;
+      const val = i % 10 === 0 ? 5 : 1;
+      expectedXp += val;
+      sim.progression.spawnPickup(
+        'pickup',
+        val === 5 ? 'xp_green' : 'xp_blue',
+        Math.cos(theta) * ringRadius,
+        Math.sin(theta) * ringRadius,
+        { value: val },
+      );
+    }
+
+    // Stepping simulation triggers updatePickups -> consolidateExcessXpGems(playerX, playerY)
+    sim.step(0, 0, FIXED_DT);
+
+    expect(sim.progression.lastPlayerX).toBe(sim.playerX);
+    expect(sim.progression.lastPlayerY).toBe(sim.playerY);
+    expect(sim.progression.pickups.length).toBeLessThanOrEqual(MAX_ACTIVE_XP_GEMS);
+    expect(sim.progression.getTotalFloorXp()).toBe(expectedXp);
+    // Player at (0,0) must NOT have absorbed an averaged gem teleported to (0,0)
+    expect(sim.progression.xp).toBe(0);
+    expect(sim.progression.level).toBe(1);
+    for (const p of sim.progression.pickups) {
+      if (p.itemId.startsWith('xp_')) {
+        const dist = Math.hypot(p.x, p.y);
+        expect(dist).toBeGreaterThan(ringRadius - 5);
+      }
+    }
   });
 
   it('handles Reroll, Skip, Banish, and Limit Break on full build', () => {
@@ -784,6 +829,265 @@ describe('SaveStore: Shop Refund Math, Hero Buy & JSON Import/Export', () => {
     otherStore.recordSettlement(summary.settlement, summary);
     expect(otherStore.getState().unlockedStages).toContain('inlaid_library');
     expect(otherStore.getState().unlockedRelics).toContain('relic_map');
+  });
+
+  it('supports Collection Seal limits, toggle/clear, export/import, and draft exclusion while allowing owned upgrades', () => {
+    const storage = new MemoryStorage();
+    const store = new SaveStore(CATALOG, storage);
+
+    // Default 1 unlocked stage -> 4 + 1*2 = 6 max seals
+    expect(store.getMaxSealCount()).toBe(6);
+    expect(store.getSealedItems()).toEqual([]);
+
+    // Seal Antonio's starting weapon + 5 more items (reaches cap 6)
+    const toSeal = ['whip', 'knife', 'axe', 'cross', 'armor', 'clover'] as const;
+    for (const id of toSeal) {
+      const res = store.toggleSealItem(id);
+      expect(res).toEqual({ ok: true, sealed: true });
+      expect(store.isItemSealed(id)).toBe(true);
+    }
+    expect(store.getSealedItems()).toHaveLength(6);
+
+    // 7th seal fails with cap error
+    const overflow = store.toggleSealItem('spinach');
+    expect(overflow).toEqual({ ok: false, sealed: false, error: '封印槽位已满' });
+    expect(store.isItemSealed('spinach')).toBe(false);
+
+    // Invalid (evolved) weapon rejected
+    const invalid = store.toggleSealItem('bloody_tear' as unknown as 'whip');
+    expect(invalid.ok).toBe(false);
+
+    // Unsealing while at max cap works
+    expect(store.toggleSealItem('clover')).toEqual({ ok: true, sealed: false });
+    expect(store.isItemSealed('clover')).toBe(false);
+
+    // Re-seal clover, export/import preserves seals & sanitizes unknown IDs
+    expect(store.toggleSealItem('clover').ok).toBe(true);
+    const exported = store.exportJson();
+    const importedStore = new SaveStore(CATALOG, new MemoryStorage());
+    expect(importedStore.importJson(exported).ok).toBe(true);
+    expect(importedStore.getSealedItems()).toEqual([...toSeal]);
+
+    const dirtySave = JSON.parse(exported) as Record<string, unknown>;
+    dirtySave.sealedItems = ['whip', 'whip', 'not_a_real_id', 'bloody_tear', 'spinach'];
+    const cleaned = sanitizeSaveState(dirtySave, CATALOG);
+    expect(cleaned.sealedItems).toEqual(['whip', 'spinach']);
+
+    // Clear all seals
+    importedStore.clearSealedItems();
+    expect(importedStore.getSealedItems()).toEqual([]);
+
+    // Verify ProgressionSystem skips sealed UNOWNED items while still offering upgrades for owned items (including sealed starting weapon)
+    const sealedAllExcept = [
+      ...BASE_WEAPON_IDS.filter((id) => id !== 'magic_wand'), // includes 'whip' (Antonio's starter)
+      ...PASSIVE_IDS.filter((id) => id !== 'spinach'),
+    ];
+    const simSave = createDefaultSaveState(CATALOG);
+    simSave.sealedItems = sealedAllExcept;
+
+    const sim = new GameSimulation(makeRunConfig({ heroId: 'antonio' }), simSave, CATALOG);
+    expect(sim.progression.sealedItems.has('whip')).toBe(true);
+
+    for (let trial = 0; trial < 5; trial++) {
+      const draft = sim.progression.buildLevelUpDraft(sim.stats, sim.weaponSystem, sim.rng);
+      const optionItemIds = draft.options.map((o) => o.itemId);
+      // Owned starting weapon 'whip' can still be upgraded
+      expect(optionItemIds).toContain('whip');
+      // Only unsealed unowned items ('magic_wand', 'spinach') or owned 'whip' may appear
+      for (const opt of draft.options) {
+        if (opt.isNew) {
+          expect(sim.progression.sealedItems.has(opt.itemId)).toBe(false);
+        }
+      }
+      expect(optionItemIds.every((id) => id === 'whip' || id === 'magic_wand' || id === 'spinach')).toBe(
+        true,
+      );
+    }
+  });
+
+  it('records heroStageClears and heroHyperClears on victory settlements and backfills legacy records', () => {
+    const storage = new MemoryStorage();
+    const store = new SaveStore(CATALOG, storage);
+
+    // Defeat does NOT record clears
+    store.recordSettlement(
+      {
+        victory: false,
+        stageId: 'mad_forest',
+        heroId: 'antonio',
+        elapsedSeconds: 500,
+        level: 18,
+        kills: 420,
+        goldEarned: 120,
+        weaponBreakdown: [],
+        unlockedAchievements: [],
+        causeOfDeath: '狼人',
+      },
+      { hyperEnabled: true },
+    );
+    expect(store.getHeroStageClears('antonio')).toEqual({ normal: [], hyper: [] });
+
+    // Normal victory records normal clear only
+    store.recordSettlement(
+      {
+        victory: true,
+        stageId: 'mad_forest',
+        heroId: 'antonio',
+        elapsedSeconds: 1800,
+        level: 45,
+        kills: 3500,
+        goldEarned: 800,
+        weaponBreakdown: [],
+        unlockedAchievements: [],
+      },
+      { hyperEnabled: false },
+    );
+    expect(store.getHeroStageClears('antonio')).toEqual({
+      normal: ['mad_forest'],
+      hyper: [],
+    });
+
+    // Hyper victory records both normal and hyper clears without duplicates
+    store.recordSettlement(
+      {
+        victory: true,
+        stageId: 'inlaid_library',
+        heroId: 'imelda',
+        elapsedSeconds: 1800,
+        level: 52,
+        kills: 4800,
+        goldEarned: 1500,
+        weaponBreakdown: [],
+        unlockedAchievements: [],
+      },
+      { hyperEnabled: true },
+    );
+    expect(store.getHeroStageClears('imelda')).toEqual({
+      normal: ['inlaid_library'],
+      hyper: ['inlaid_library'],
+    });
+
+    // Reload + export/import preserves hero clears
+    const reloaded = new SaveStore(CATALOG, storage);
+    expect(reloaded.getHeroStageClears('antonio')).toEqual({
+      normal: ['mad_forest'],
+      hyper: [],
+    });
+    expect(reloaded.getHeroStageClears('imelda')).toEqual({
+      normal: ['inlaid_library'],
+      hyper: ['inlaid_library'],
+    });
+
+    const exported = reloaded.exportJson();
+    const other = new SaveStore(CATALOG, new MemoryStorage());
+    expect(other.importJson(exported).ok).toBe(true);
+    expect(other.getHeroStageClears('imelda')).toEqual({
+      normal: ['inlaid_library'],
+      hyper: ['inlaid_library'],
+    });
+
+    // Legacy v1 save backfill from bestRunByStage
+    const legacyRaw = {
+      ...createDefaultSaveState(CATALOG),
+      bestRunByStage: {
+        dairy_plant: {
+          bestTimeSeconds: 1800,
+          bestLevel: 60,
+          bestKills: 7000,
+          clears: 2,
+          hyperCleared: true,
+          lastHeroId: 'pasqualina',
+        },
+      },
+    };
+    delete legacyRaw.heroStageClears;
+    delete legacyRaw.heroHyperClears;
+    const sanitized = sanitizeSaveState(legacyRaw, CATALOG);
+    expect(sanitized.heroStageClears?.pasqualina).toContain('dairy_plant');
+    expect(sanitized.heroHyperClears?.pasqualina).toContain('dairy_plant');
+  });
+});
+
+describe('Zero-GC Pooling & Reusable Frame Buffers', () => {
+  it('reuses pooled projectiles and zones across ticks and clears hitCooldowns on acquire/release', () => {
+    const pPool = new ProjectilePool();
+    const p1 = pPool.acquire();
+    p1.hitCooldowns.set(101, 0.5);
+    pPool.release(p1);
+    expect(p1.hitCooldowns.size).toBe(0);
+    expect(pPool.freeCount).toBe(1);
+    const p2 = pPool.acquire();
+    expect(p2).toBe(p1);
+    expect(p2.hitCooldowns.size).toBe(0);
+    expect(pPool.totalReused).toBe(1);
+
+    const zPool = new ZonePool();
+    const z1 = zPool.acquire();
+    z1.hitCooldowns.set(202, 0.4);
+    z1.tint = 0xffaa00;
+    zPool.release(z1);
+    expect(z1.hitCooldowns.size).toBe(0);
+    expect(zPool.freeCount).toBe(1);
+    const z2 = zPool.acquire();
+    expect(z2).toBe(z1);
+    expect(z2.hitCooldowns.size).toBe(0);
+    expect(z2.tint).toBeUndefined();
+    expect(zPool.totalReused).toBe(1);
+
+    // Simulation across ticks with projectile & zone weapons reuses pool instances
+    const save = createDefaultSaveState(CATALOG);
+    const sim = new GameSimulation(makeRunConfig({ seed: 31415 }), save, CATALOG);
+    sim.weaponSystem.slots.length = 0;
+    sim.weaponSystem.addOrUpgradeWeapon('whip'); // spawns short-lived slash zones
+    sim.weaponSystem.addOrUpgradeWeapon('knife'); // spawns short-lived projectiles
+    sim.weaponSystem.addOrUpgradeWeapon('garlic'); // spawns short-lived aura zones
+    sim.invulnTimer = 30;
+
+    for (let i = 0; i < 12; i++) {
+      sim.enemySystem.spawnEnemy('zombie', 90 + i * 10, 0, { hpScale: 20 });
+    }
+    for (let t = 0; t < 240; t++) {
+      sim.step(1, 0, FIXED_DT);
+    }
+
+    expect(sim.weaponSystem.projectilePool.totalReused).toBeGreaterThan(0);
+    expect(sim.weaponSystem.zonePool.totalReused).toBeGreaterThan(0);
+    expect(sim.weaponSystem.projectilePool.totalAllocated).toBeLessThan(20);
+    expect(sim.weaponSystem.zonePool.totalAllocated).toBeLessThan(20);
+  });
+
+  it('reuses HUD slot arrays, bossBar, and live Milky Way Map markers with zero per-frame allocations', () => {
+    const save = createDefaultSaveState(CATALOG);
+    const sim = new GameSimulation(makeRunConfig(), save, CATALOG);
+    sim.progression.passives.set('spinach', 2);
+    sim.progression.arcanas.push('arcana_iv_awake');
+    sim.enemySystem.spawnEnemy('boss_giant_bat', 180, 0, { hpScale: 2 });
+
+    const f1 = sim.step(0, 0, FIXED_DT);
+    const weaponsRef = f1.hud.weapons;
+    const passivesRef = f1.hud.passives;
+    const arcanasRef = f1.hud.arcanas;
+    const bossBarRef = f1.bossBar;
+    expect(bossBarRef).not.toBeNull();
+    expect(f1.hud.hasMilkyWayMap).toBe(false);
+    expect(f1.hud.mapMarkers).toBeUndefined();
+
+    const f2 = sim.step(0, 0, FIXED_DT);
+    expect(f2.hud.weapons).toBe(weaponsRef);
+    expect(f2.hud.passives).toBe(passivesRef);
+    expect(f2.hud.arcanas).toBe(arcanasRef);
+    expect(f2.bossBar).toBe(bossBarRef);
+
+    // Collect Milky Way Map relic -> populates reusable hud.mapMarkers
+    sim.progression.collectedRelics.add('relic_map');
+    const f3 = sim.step(0, 0, FIXED_DT);
+    expect(f3.hud.hasMilkyWayMap).toBe(true);
+    expect(f3.hud.mapMarkers).toBeDefined();
+    expect(f3.hud.mapMarkers!.length).toBeGreaterThan(0);
+    const markersRef = f3.hud.mapMarkers;
+
+    const f4 = sim.step(0, 0, FIXED_DT);
+    expect(f4.hud.mapMarkers).toBe(markersRef);
   });
 });
 

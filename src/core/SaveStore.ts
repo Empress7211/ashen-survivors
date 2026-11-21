@@ -1,5 +1,6 @@
 import {
   ARCANA_IDS,
+  BASE_WEAPON_IDS,
   ENEMY_IDS,
   HERO_IDS,
   PASSIVE_IDS,
@@ -11,9 +12,11 @@ import {
 import type {
   ArcanaId,
   AudioAndDisplaySettings,
+  BaseWeaponId,
   Catalog,
   EnemyId,
   HeroId,
+  PassiveId,
   PowerUpId,
   RelicId,
   SaveState,
@@ -53,6 +56,7 @@ const RELIC_ID_SET = new Set<string>(RELIC_IDS);
 const ARCANA_ID_SET = new Set<string>(ARCANA_IDS);
 const POWERUP_ID_SET = new Set<string>(POWERUP_IDS);
 const ENEMY_ID_SET = new Set<string>(ENEMY_IDS);
+const SEALABLE_ITEM_ID_SET = new Set<string>([...BASE_WEAPON_IDS, ...PASSIVE_IDS]);
 const VALID_ITEM_ID_SET = new Set<string>([
   ...WEAPON_IDS,
   ...PASSIVE_IDS,
@@ -141,6 +145,9 @@ export function createDefaultSaveState(catalog: Catalog): SaveState {
     discoveredItems: [catalog.heroes[selectedHeroId].startingWeapon],
     bestiaryKills: {},
     bestRunByStage: {},
+    sealedItems: [],
+    heroStageClears: {},
+    heroHyperClears: {},
     selectedHeroId,
     selectedStageId,
     stageOptions: {
@@ -226,6 +233,35 @@ function nonNegInt(val: unknown, fallback = 0): number {
 function clamp01(val: unknown, fallback: number): number {
   if (typeof val !== 'number' || !Number.isFinite(val)) return fallback;
   return Math.min(1, Math.max(0, val));
+}
+
+function sanitizeHeroStageMap(
+  raw: unknown,
+): Partial<Record<HeroId, StageId[]>> {
+  const out: Partial<Record<HeroId, StageId[]>> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return out;
+  }
+  const obj = raw as Record<string, unknown>;
+  for (const heroId of HERO_IDS) {
+    const stages = uniqueValidIds<StageId>(obj[heroId], STAGE_ID_SET);
+    if (stages.length > 0) {
+      out[heroId] = stages;
+    }
+  }
+  return out;
+}
+
+function appendUniqueStage(
+  map: Partial<Record<HeroId, StageId[]>>,
+  heroId: HeroId,
+  stageId: StageId,
+): void {
+  const list = map[heroId] ?? [];
+  if (!list.includes(stageId)) {
+    list.push(stageId);
+  }
+  map[heroId] = list;
 }
 
 export function sanitizeSaveState(raw: unknown, catalog: Catalog): SaveState {
@@ -333,6 +369,23 @@ export function sanitizeSaveState(raw: unknown, catalog: Catalog): SaveState {
     }
   }
 
+  const sealedItems = uniqueValidIds<string>(
+    obj.sealedItems,
+    SEALABLE_ITEM_ID_SET,
+  );
+  const heroStageClears = sanitizeHeroStageMap(obj.heroStageClears);
+  const heroHyperClears = sanitizeHeroStageMap(obj.heroHyperClears);
+  for (const stageId of STAGE_IDS) {
+    const rec = bestRunByStage[stageId];
+    if (!rec || !rec.lastHeroId) continue;
+    if (rec.clears > 0) {
+      appendUniqueStage(heroStageClears, rec.lastHeroId, stageId);
+    }
+    if (rec.hyperCleared) {
+      appendUniqueStage(heroHyperClears, rec.lastHeroId, stageId);
+    }
+  }
+
   const selectedHeroId =
     typeof obj.selectedHeroId === 'string' &&
     HERO_ID_SET.has(obj.selectedHeroId) &&
@@ -405,6 +458,9 @@ export function sanitizeSaveState(raw: unknown, catalog: Catalog): SaveState {
     discoveredItems,
     bestiaryKills,
     bestRunByStage,
+    sealedItems,
+    heroStageClears,
+    heroHyperClears,
     selectedHeroId,
     selectedStageId,
     stageOptions,
@@ -702,6 +758,53 @@ export class SaveStore {
     this.discoverItem(relicId);
   }
 
+  getMaxSealCount(): number {
+    return 4 + this.state.unlockedStages.length * 2;
+  }
+
+  getSealedItems(): readonly string[] {
+    return this.state.sealedItems ?? [];
+  }
+
+  isItemSealed(itemId: string): boolean {
+    return (this.state.sealedItems ?? []).includes(itemId);
+  }
+
+  toggleSealItem(itemId: BaseWeaponId | PassiveId): {
+    ok: boolean;
+    sealed: boolean;
+    error?: string;
+  } {
+    if (!SEALABLE_ITEM_ID_SET.has(itemId)) {
+      return { ok: false, sealed: false, error: '该物品不可封印' };
+    }
+    const list = this.state.sealedItems ?? (this.state.sealedItems = []);
+    const idx = list.indexOf(itemId);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+      this.save();
+      return { ok: true, sealed: false };
+    }
+    if (list.length >= this.getMaxSealCount()) {
+      return { ok: false, sealed: false, error: '封印槽位已满' };
+    }
+    list.push(itemId);
+    this.save();
+    return { ok: true, sealed: true };
+  }
+
+  clearSealedItems(): void {
+    this.state.sealedItems = [];
+    this.save();
+  }
+
+  getHeroStageClears(heroId: HeroId): { normal: StageId[]; hyper: StageId[] } {
+    return {
+      normal: [...(this.state.heroStageClears?.[heroId] ?? [])],
+      hyper: [...(this.state.heroHyperClears?.[heroId] ?? [])],
+    };
+  }
+
   applyAchievementRewards(achievementIds: readonly string[]): void {
     const byId = new Map(this.catalog.achievements.map((a) => [a.id, a]));
     for (const id of achievementIds) {
@@ -798,6 +901,21 @@ export class SaveStore {
       lastHeroId: settlement.heroId,
     };
     this.state.bestRunByStage[settlement.stageId] = nextRecord;
+
+    if (
+      settlement.victory &&
+      HERO_ID_SET.has(settlement.heroId) &&
+      STAGE_ID_SET.has(settlement.stageId)
+    ) {
+      const heroStageClears =
+        this.state.heroStageClears ?? (this.state.heroStageClears = {});
+      appendUniqueStage(heroStageClears, settlement.heroId, settlement.stageId);
+      if (options?.hyperEnabled) {
+        const heroHyperClears =
+          this.state.heroHyperClears ?? (this.state.heroHyperClears = {});
+        appendUniqueStage(heroHyperClears, settlement.heroId, settlement.stageId);
+      }
+    }
 
     if (settlement.unlockedAchievements.length > 0) {
       this.applyAchievementRewards(settlement.unlockedAchievements);

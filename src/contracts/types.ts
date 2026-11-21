@@ -451,6 +451,9 @@ export interface SaveState {
   discoveredItems: string[];
   bestiaryKills: Partial<Record<EnemyId, number>>;
   bestRunByStage: Partial<Record<StageId, StageBestRecord>>;
+  sealedItems?: string[];
+  heroStageClears?: Partial<Record<HeroId, StageId[]>>;
+  heroHyperClears?: Partial<Record<HeroId, StageId[]>>;
   selectedHeroId: HeroId;
   selectedStageId: StageId;
   stageOptions: {
@@ -673,6 +676,8 @@ export interface HudSnapshot {
   hurry: boolean;
   endless: boolean;
   endlessCycle: number;
+  hasMilkyWayMap?: boolean;
+  mapMarkers?: readonly PauseMapMarker[];
 }
 
 export interface BossBarState {
