@@ -12,7 +12,7 @@ import type {
 } from '../contracts/index.ts';
 
 export function iconUrl(id: CatalogIconId | string): string {
-  return `/assets/icons/${id}.png`;
+  return `/assets/icons/${id}.webp`;
 }
 
 export function stageBgUrl(stageId: StageId): string {
