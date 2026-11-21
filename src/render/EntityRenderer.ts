@@ -6,9 +6,14 @@ import {
   ATLAS_WORLD,
   TEX_GLOW_DISC,
   TEX_SHADOW_ELLIPSE,
+  clampAlpha,
+  hasAtlasPassiveFrame,
+  interpolateValue,
+  passiveAtlasFrame,
   passiveIconKey,
 } from './RenderAssets';
 import { ImagePool } from './SpritePool';
+import type { EntityRenderInterp } from './types';
 
 const WARM_LIGHT_PROPS = new Set<string>([
   'brazier',
@@ -54,7 +59,7 @@ export class EntityRenderer {
     // Pickups (depth 10)
     this.pickupVfxPool = new ImagePool(scene, ATLAS_VFX, 10, 260);
     this.pickupWorldPool = new ImagePool(scene, ATLAS_WORLD, 10, 12);
-    this.pickupPassivePool = new ImagePool(scene, TEX_GLOW_DISC, 10, 8);
+    this.pickupPassivePool = new ImagePool(scene, TEX_GLOW_DISC, 10, 0);
 
     // Props (depth 11)
     this.propPool = new ImagePool(scene, ATLAS_WORLD, 11, 64);
@@ -85,6 +90,7 @@ export class EntityRenderer {
     visW: number,
     visH: number,
     highQuality: boolean,
+    interp?: EntityRenderInterp,
   ): void {
     this.shadowPool.beginFrame();
     this.pickupGlowPool.beginFrame();
@@ -103,6 +109,8 @@ export class EntityRenderer {
     const cullTop = camCenterY - visH * 0.5 - 180;
     const cullBottom = camCenterY + visH * 0.5 + 180;
     const tick = state.tick;
+    const alpha = interp?.alpha !== undefined ? clampAlpha(interp.alpha) : 1;
+    const enemySnaps = alpha < 1 ? interp?.enemySnaps : undefined;
 
     // 1. Pickups
     const pickups = state.pickups;
@@ -121,15 +129,27 @@ export class EntityRenderer {
       const isChest = p.kind === 'pickup' && p.itemId.startsWith('chest_');
 
       if (p.kind === 'passive') {
-        const key = passiveIconKey(p.itemId as PassiveId);
-        if (this.scene.textures.exists(key)) {
-          const sprite = this.pickupPassivePool.acquire();
-          sprite.setTexture(key);
+        const pid = p.itemId as PassiveId;
+        if (hasAtlasPassiveFrame(this.scene.textures, pid)) {
+          const sprite = this.pickupWorldPool.acquire();
+          sprite.setTexture(ATLAS_WORLD, passiveAtlasFrame(pid));
           sprite.setOrigin(0.5, 0.5);
           sprite.setPosition(p.x, p.y - 4 + bob);
-          sprite.setScale(0.42);
+          const maxDim = Math.max(1, sprite.width, sprite.height);
+          sprite.setScale(40 / maxDim);
           sprite.setAlpha(1);
           sprite.clearTint();
+        } else {
+          const key = passiveIconKey(pid);
+          if (this.scene.textures.exists(key)) {
+            const sprite = this.pickupPassivePool.acquire();
+            sprite.setTexture(key);
+            sprite.setOrigin(0.5, 0.5);
+            sprite.setPosition(p.x, p.y - 4 + bob);
+            sprite.setScale(0.42);
+            sprite.setAlpha(1);
+            sprite.clearTint();
+          }
         }
         const shadow = this.shadowPool.acquire();
         shadow.setPosition(p.x, p.y + 13);
@@ -267,12 +287,15 @@ export class EntityRenderer {
 
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i]!;
+      const snap = enemySnaps?.get(e.uid);
+      const ex = snap ? interpolateValue(snap.prevX, snap.currX, alpha) : e.x;
+      const ey = snap ? interpolateValue(snap.prevY, snap.currY, alpha) : e.y;
       const margin = e.isBoss || e.isReaper ? 140 : 40;
       if (
-        e.x + margin < cullLeft ||
-        e.x - margin > cullRight ||
-        e.y + margin < cullTop ||
-        e.y - margin > cullBottom
+        ex + margin < cullLeft ||
+        ex - margin > cullRight ||
+        ey + margin < cullTop ||
+        ey - margin > cullBottom
       ) {
         continue;
       }
@@ -283,7 +306,7 @@ export class EntityRenderer {
       if (isHeavy || enemyShadowsDrawn < maxEnemyShadows) {
         enemyShadowsDrawn++;
         const shadow = this.shadowPool.acquire();
-        shadow.setPosition(e.x, e.y + (isHeavy ? 18 : 11));
+        shadow.setPosition(ex, ey + (isHeavy ? 18 : 11));
         const shadowScale = Math.max(0.42, e.radius / 22);
         shadow.setScale(shadowScale, shadowScale * 0.72);
         shadow.setAlpha(isHeavy ? 0.85 : 0.68);
@@ -294,7 +317,7 @@ export class EntityRenderer {
         sprite.setFrame(frame);
       }
       sprite.setOrigin(0.5, 0.78);
-      sprite.setPosition(e.x, e.y + (isHeavy ? 18 : 11));
+      sprite.setPosition(ex, ey + (isHeavy ? 18 : 11));
       sprite.setScale((isHeavy ? 0.533 : 0.64) * e.scale);
       sprite.setFlipX(e.facingX < 0);
       if (sprite.alpha !== 1) sprite.setAlpha(1);
@@ -311,8 +334,8 @@ export class EntityRenderer {
 
       if (isHeavy) {
         this.renderBossAccent(
-          e.x,
-          e.y,
+          ex,
+          ey,
           e.radius,
           e.hp,
           e.maxHp,
@@ -324,7 +347,9 @@ export class EntityRenderer {
     }
 
     // 4. Player
-    this.renderPlayer(state);
+    const playerX = interp?.playerX ?? state.player.x;
+    const playerY = interp?.playerY ?? state.player.y;
+    this.renderPlayer(state, playerX, playerY);
 
     this.shadowPool.endFrame();
     this.pickupGlowPool.endFrame();
@@ -377,10 +402,14 @@ export class EntityRenderer {
     }
   }
 
-  private renderPlayer(state: RenderFrameState): void {
+  private renderPlayer(
+    state: RenderFrameState,
+    playerX: number,
+    playerY: number,
+  ): void {
     const p = state.player;
     const shadow = this.shadowPool.acquire();
-    shadow.setPosition(p.x, p.y + 13);
+    shadow.setPosition(playerX, playerY + 13);
     shadow.setScale(0.68, 0.52);
     shadow.setAlpha(0.78);
 
@@ -388,7 +417,7 @@ export class EntityRenderer {
     if (this.playerSprite.frame.name !== frame) {
       this.playerSprite.setFrame(frame);
     }
-    this.playerSprite.setPosition(p.x, p.y + 13);
+    this.playerSprite.setPosition(playerX, playerY + 13);
     this.playerSprite.setFlipX(p.facingX < 0);
     if (!this.playerSprite.visible) {
       this.playerSprite.setVisible(true);
@@ -406,8 +435,8 @@ export class EntityRenderer {
     // Subtle player HP bar right beneath hero feet
     const barW = 40;
     const barH = 5;
-    const bx = p.x - barW * 0.5;
-    const by = p.y + 22;
+    const bx = playerX - barW * 0.5;
+    const by = playerY + 22;
     const ratio = Math.max(0, Math.min(1, p.hp / Math.max(1, p.maxHp)));
 
     this.playerHpGraphics.fillStyle(0x09070d, 0.88);

@@ -18,6 +18,7 @@ export class BattleRenderer {
   private destroyed = false;
   private paused = false;
   private pendingState: RenderFrameState | null = null;
+  private pendingAlpha = 1;
   private width: number;
   private height: number;
 
@@ -58,8 +59,9 @@ export class BattleRenderer {
           this.sceneIsReady = true;
           this.scene.handleResize(this.width, this.height);
           if (this.pendingState) {
-            this.scene.applyFrameState(this.pendingState);
+            this.scene.applyFrameState(this.pendingState, this.pendingAlpha);
             this.pendingState = null;
+            this.pendingAlpha = 1;
           }
           options.onReady?.();
           this.resolveReady();
@@ -145,13 +147,14 @@ export class BattleRenderer {
     this.scene.setDisplayOptions(options);
   }
 
-  render(state: RenderFrameState): void {
+  render(state: RenderFrameState, alpha = 1): void {
     if (this.destroyed) return;
     if (!this.sceneIsReady) {
       this.pendingState = state;
+      this.pendingAlpha = alpha;
       return;
     }
-    this.scene.applyFrameState(state);
+    this.scene.applyFrameState(state, alpha);
     if (this.paused && !this.game.loop.running) {
       this.game.events.off(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
       this.game.events.once(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
@@ -190,6 +193,7 @@ export class BattleRenderer {
     this.destroyed = true;
     this.sceneIsReady = false;
     this.pendingState = null;
+    this.pendingAlpha = 1;
 
     this.game.events.off(Phaser.Core.Events.POST_RENDER, this.sleepOnPostRender);
     const canvas = this.canvasEl ?? this.game.canvas;
