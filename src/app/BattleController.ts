@@ -17,7 +17,7 @@ import { renderReviveModal } from '../ui/ReviveModal.ts';
 import { renderSettlementModal } from '../ui/SettlementModal.ts';
 import { VirtualJoystickView } from '../ui/VirtualJoystick.ts';
 import { ListenerBag, el } from './dom.ts';
-import { InputManager } from './InputManager.ts';
+import { GamepadMenuNavigator, InputManager } from './InputManager.ts';
 
 export interface BattleControllerDeps {
   container: HTMLElement;
@@ -39,6 +39,7 @@ export class BattleController {
   private readonly hud: BattleHudView;
   private readonly joystickView: VirtualJoystickView;
   private readonly input = new InputManager();
+  private readonly menuNav = new GamepadMenuNavigator();
   private readonly listeners = new ListenerBag();
   private readonly modalHost: HTMLElement;
   private readonly loadingOverlay: HTMLElement;
@@ -58,6 +59,7 @@ export class BattleController {
   private startedLoop = false;
 
   private currentFrame: RenderFrameState;
+  private lastSyncedPhase: RunPhase = 'playing';
   private lastModalKey = '';
   private chestHandle: ChestModalHandle | null = null;
   private pauseHandle: PauseModalHandle | null = null;
@@ -178,7 +180,9 @@ export class BattleController {
     });
 
     this.bindEvents();
-    this.hud.update(this.currentFrame, this.audio.isMuted());
+    this.hud.update(this.currentFrame, this.audio.isMuted(), {
+      showMinimap: this.saveStore.getState().settings.showMinimap,
+    });
 
     const beginActiveBattle = (): void => {
       if (this.destroyed || this.startedLoop) return;
@@ -206,6 +210,17 @@ export class BattleController {
   }
 
   private bindEvents(): void {
+    this.listeners.on(
+      window,
+      'pointerdown',
+      () => {
+        if (this.menuNav.isActive()) {
+          this.menuNav.clearFocus(true);
+        }
+      },
+      { passive: true },
+    );
+
     this.listeners.on(window, 'resize', () => {
       if (this.destroyed) return;
       const w = Math.max(1, this.container.clientWidth || window.innerWidth);
@@ -338,16 +353,78 @@ export class BattleController {
           break;
         }
       }
+      const alpha =
+        this.sim.phase === 'playing'
+          ? Math.max(0, Math.min(1, this.accumulator / FIXED_DT))
+          : 1;
       if (steps > 0) {
         const frame = this.sim.getRenderFrame();
-        this.syncFrame(frame);
+        this.syncFrame(frame, alpha);
+      } else {
+        (this.renderer as { render(s: RenderFrameState, a?: number): void }).render(
+          this.currentFrame,
+          alpha,
+        );
       }
     } else {
       this.accumulator = 0;
+      if (this.renderer.isReady()) {
+        this.pollModalGamepadNavigation(timestamp);
+      }
     }
 
     this.rafId = window.requestAnimationFrame(this.onAnimationFrame);
   };
+
+  private pollModalGamepadNavigation(timestamp: number): void {
+    const res = this.menuNav.poll(timestamp);
+    const phase = this.currentFrame.phase;
+
+    if (res.direction) {
+      this.menuNav.moveFocus(this.modalHost, res.direction);
+      this.audio.playCue({ type: 'ui_hover' });
+    } else if (res.confirmPressed) {
+      const activated = this.menuNav.activateFocused(this.modalHost);
+      if (!activated) {
+        if (phase === 'chest' && this.chestHandle?.canSkipNow()) {
+          this.dispatch({ type: 'close_chest' });
+        } else if (phase === 'revive') {
+          this.dispatch({ type: 'confirm_revive' });
+        } else if (phase === 'settlement') {
+          this.exitToMenu();
+        }
+      }
+    } else if (res.cancelPressed) {
+      if (phase === 'paused') {
+        this.dispatch({ type: 'toggle_pause' });
+      } else if (phase === 'chest' && this.chestHandle?.canSkipNow()) {
+        this.dispatch({ type: 'close_chest' });
+      } else if (phase === 'settlement') {
+        this.exitToMenu();
+      } else if (phase === 'level_up' && this.currentFrame.draftModal?.banishModeActive) {
+        this.dispatch({ type: 'toggle_banish_mode' });
+      }
+    } else if (res.startPressed) {
+      if (phase === 'paused') {
+        this.dispatch({ type: 'toggle_pause' });
+      }
+    } else if (phase === 'level_up' || phase === 'arcana_select') {
+      if (res.xPressed) {
+        this.dispatch({ type: 'reroll_draft' });
+      } else if (res.yPressed && phase === 'level_up') {
+        const draft = this.currentFrame.draftModal;
+        if (draft && (draft.banishModeActive || draft.banishesRemaining > 0)) {
+          this.dispatch({ type: 'toggle_banish_mode' });
+        } else if (draft && draft.skipsRemaining > 0) {
+          this.dispatch({ type: 'skip_draft' });
+        }
+      }
+    }
+
+    if (this.menuNav.isActive() && this.currentFrame.phase !== 'playing') {
+      this.menuNav.syncFocus(this.modalHost);
+    }
+  }
 
   private dispatch(action: SimulationAction): void {
     const prevPhase = this.currentFrame.phase;
@@ -363,21 +440,34 @@ export class BattleController {
     }
   }
 
-  private syncFrame(frame: RenderFrameState): void {
+  private syncFrame(frame: RenderFrameState, alpha = 1): void {
+    const prevPhase = this.lastSyncedPhase;
     this.currentFrame = frame;
+    this.lastSyncedPhase = frame.phase;
 
     const isPlaying = frame.phase === 'playing';
     if (!isPlaying) {
       this.input.resetJoystick();
+      if (prevPhase === 'playing') {
+        this.menuNav.syncFromHardware();
+      }
+    } else if (prevPhase !== 'playing') {
+      this.menuNav.clearFocus(false);
+      this.input.syncGamepadPauseButton();
     }
 
     if (frame.audioCues.length > 0) {
       this.audio.playCues(frame.audioCues);
     }
 
-    this.renderer.render(frame);
+    (this.renderer as { render(state: RenderFrameState, alpha?: number): void }).render(
+      frame,
+      alpha,
+    );
     this.renderer.setPaused(!isPlaying);
-    this.hud.update(frame, this.audio.isMuted());
+    this.hud.update(frame, this.audio.isMuted(), {
+      showMinimap: this.saveStore.getState().settings.showMinimap,
+    });
     this.checkAchievementToasts();
     this.syncModalForPhase(frame);
 
@@ -483,6 +573,9 @@ export class BattleController {
                 screenShakeEnabled: nextSettings.screenShake,
                 showDamageNumbers: nextSettings.showDamageNumbers,
               });
+              this.hud.update(this.currentFrame, this.audio.isMuted(), {
+                showMinimap: nextSettings.showMinimap,
+              });
             },
             onResume: () => this.dispatch({ type: 'toggle_pause' }),
             onRetire: () => this.dispatch({ type: 'end_run' }),
@@ -516,6 +609,10 @@ export class BattleController {
         }
         break;
     }
+
+    if (frame.phase !== 'playing' && this.menuNav.isActive()) {
+      this.menuNav.syncFocus(this.modalHost);
+    }
   }
 
   private clearActiveModal(): void {
@@ -524,6 +621,7 @@ export class BattleController {
       this.chestHandle = null;
     }
     this.pauseHandle = null;
+    this.menuNav.clearFocus(false);
     this.modalHost.replaceChildren();
   }
 
@@ -542,6 +640,7 @@ export class BattleController {
     }
 
     this.clearActiveModal();
+    this.menuNav.clearFocus(true);
     this.input.detach();
     this.listeners.clear();
     this.renderer.destroy();

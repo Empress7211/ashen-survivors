@@ -5,13 +5,31 @@ import {
   RELIC_IDS,
   WEAPON_IDS,
 } from '../contracts/ids.ts';
-import type { AudioCue, Catalog, SaveState } from '../contracts/index.ts';
+import type {
+  AudioCue,
+  BaseWeaponId,
+  Catalog,
+  PassiveId,
+  SaveState,
+} from '../contracts/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { iconUrl } from '../app/formatters.ts';
 
+export interface CollectionSaveStoreLike {
+  getState(): SaveState;
+  getMaxSealCount?: () => number;
+  getSealedItems?: () => readonly string[];
+  isItemSealed?: (itemId: string) => boolean;
+  toggleSealItem?: (
+    itemId: BaseWeaponId | PassiveId,
+  ) => { ok: boolean; sealed: boolean; error?: string };
+  clearSealedItems?: () => void;
+}
+
 export interface CollectionModalDeps {
   catalog: Catalog;
-  saveState: SaveState;
+  saveStore?: CollectionSaveStoreLike;
+  saveState?: SaveState;
   onClose: () => void;
   onCue: (cue: AudioCue) => void;
 }
@@ -19,11 +37,27 @@ export interface CollectionModalDeps {
 type CollectionTab = 'grimoire' | 'weapons' | 'passives' | 'arcanas' | 'relics';
 
 export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
-  const { catalog, saveState, onCue } = deps;
+  const { catalog, saveStore, onCue } = deps;
   let activeTab: CollectionTab = 'grimoire';
-  const discoveredSet = new Set(saveState.discoveredItems);
-  const unlockedRelics = new Set(saveState.unlockedRelics);
-  const unlockedArcanas = new Set(saveState.unlockedArcanas);
+  let sealFeedback: { ok: boolean; text: string } | null = null;
+
+  const getSaveState = (): SaveState => {
+    const state = saveStore?.getState() ?? deps.saveState;
+    if (!state) {
+      throw new Error('renderCollectionModal requires saveStore or saveState');
+    }
+    return state;
+  };
+
+  const getMaxSeals = (state: SaveState): number =>
+    saveStore?.getMaxSealCount?.() ?? 4 + state.unlockedStages.length * 2;
+
+  const getSealedSet = (state: SaveState): Set<string> => {
+    const fromStore = saveStore?.getSealedItems?.();
+    if (fromStore) return new Set(fromStore);
+    const ext = (state as SaveState & { sealedItems?: readonly string[] }).sealedItems;
+    return new Set(ext ?? []);
+  };
 
   const backdrop = el('div', {
     className: 'modal-backdrop',
@@ -32,6 +66,67 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
 
   const renderContent = (): void => {
     backdrop.replaceChildren();
+    const saveState = getSaveState();
+    const discoveredSet = new Set(saveState.discoveredItems);
+    const unlockedRelics = new Set(saveState.unlockedRelics);
+    const unlockedArcanas = new Set(saveState.unlockedArcanas);
+    const sealedSet = getSealedSet(saveState);
+    const maxSeals = getMaxSeals(saveState);
+
+    const isItemSealed = (id: string): boolean =>
+      saveStore?.isItemSealed ? saveStore.isItemSealed(id) : sealedSet.has(id);
+
+    const handleToggleSeal = (id: BaseWeaponId | PassiveId): void => {
+      if (!saveStore?.toggleSealItem) {
+        sealFeedback = { ok: false, text: '当前存档接口不支持封印操作。' };
+        onCue({ type: 'ui_error' });
+        renderContent();
+        return;
+      }
+      const res = saveStore.toggleSealItem(id);
+      if (res.ok) {
+        sealFeedback = null;
+        onCue({ type: res.sealed ? 'ui_buy' : 'ui_click' });
+      } else {
+        sealFeedback = { ok: false, text: res.error ?? '封印槽位已满' };
+        onCue({ type: 'ui_error' });
+      }
+      renderContent();
+    };
+
+    const buildSealSummaryBar = (): HTMLElement =>
+      el('div', {
+        className: 'seal-summary-bar',
+        children: [
+          el('div', {
+            className: 'title-meta-pills',
+            children: [
+              el('span', {
+                className: 'tag-badge tag-badge-crimson num-font',
+                dataset: { testid: 'seal-count-pill' },
+                text: `命运封印：已封印 ${sealedSet.size} / ${maxSeals}`,
+              }),
+              el('span', {
+                className: 'codex-desc',
+                text: '被封印的未持有装备不会在升级选牌中出现（初始武器与已有装备仍可升级）。',
+              }),
+            ],
+          }),
+          el('button', {
+            className: 'gothic-btn gothic-btn-danger',
+            text: '解除全部封印',
+            attrs: { disabled: sealedSet.size === 0 || !saveStore?.clearSealedItems },
+            dataset: { testid: 'btn-clear-seals' },
+            onClick: () => {
+              if (!saveStore?.clearSealedItems) return;
+              saveStore.clearSealedItems();
+              sealFeedback = null;
+              onCue({ type: 'ui_click' });
+              renderContent();
+            },
+          }),
+        ],
+      });
 
     const tabs: Array<{ id: CollectionTab; label: string }> = [
       { id: 'grimoire', label: `进化魔典 (${catalog.evolutions.length})` },
@@ -51,6 +146,7 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
           dataset: { testid: `collection-tab-${t.id}` },
           onClick: () => {
             onCue({ type: 'ui_click' });
+            sealFeedback = null;
             activeTab = t.id;
             renderContent();
           },
@@ -108,13 +204,24 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
       }
       body.appendChild(grid);
     } else if (activeTab === 'weapons') {
+      body.appendChild(buildSealSummaryBar());
+      if (sealFeedback) {
+        body.appendChild(
+          el('div', {
+            className: `status-banner ${sealFeedback.ok ? 'ok' : 'err'}`,
+            text: sealFeedback.text,
+          }),
+        );
+      }
       const grid = el('div', { className: 'codex-grid' });
       for (const wId of WEAPON_IDS) {
         const def = catalog.weapons[wId];
         const known = discoveredSet.has(wId);
+        const canSeal = known && !def.isEvolved;
+        const sealed = canSeal && isItemSealed(wId);
         grid.appendChild(
           el('div', {
-            className: `codex-card ${known ? '' : 'undiscovered'}`,
+            className: `codex-card ${known ? '' : 'undiscovered'} ${sealed ? 'sealed' : ''}`,
             children: [
               imgIcon(iconUrl(wId), def.name, 'codex-icon'),
               el('div', {
@@ -124,9 +231,22 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
                     className: 'stage-card-top',
                     children: [
                       el('span', { className: 'codex-name', text: def.name }),
-                      el('span', {
-                        className: `tag-badge ${def.isEvolved ? 'tag-badge-crimson' : known ? 'tag-badge-gold' : ''}`,
-                        text: def.isEvolved ? '超武进化' : known ? '已收录' : '未发现',
+                      el('div', {
+                        className: 'title-meta-pills',
+                        children: [
+                          el('span', {
+                            className: `tag-badge ${def.isEvolved ? 'tag-badge-crimson' : known ? 'tag-badge-gold' : ''}`,
+                            text: def.isEvolved ? '超武进化' : known ? '已收录' : '未发现',
+                          }),
+                          canSeal
+                            ? el('button', {
+                                className: `gothic-btn seal-toggle-btn ${sealed ? 'gothic-btn-danger' : ''}`,
+                                text: sealed ? '已封印' : '封印',
+                                dataset: { testid: `btn-seal-${wId}` },
+                                onClick: () => handleToggleSeal(wId as BaseWeaponId),
+                              })
+                            : null,
+                        ],
                       }),
                     ],
                   }),
@@ -140,13 +260,23 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
       }
       body.appendChild(grid);
     } else if (activeTab === 'passives') {
+      body.appendChild(buildSealSummaryBar());
+      if (sealFeedback) {
+        body.appendChild(
+          el('div', {
+            className: `status-banner ${sealFeedback.ok ? 'ok' : 'err'}`,
+            text: sealFeedback.text,
+          }),
+        );
+      }
       const grid = el('div', { className: 'codex-grid' });
       for (const pId of PASSIVE_IDS) {
         const def = catalog.passives[pId];
         const known = discoveredSet.has(pId);
+        const sealed = known && isItemSealed(pId);
         grid.appendChild(
           el('div', {
-            className: `codex-card ${known ? '' : 'undiscovered'}`,
+            className: `codex-card ${known ? '' : 'undiscovered'} ${sealed ? 'sealed' : ''}`,
             children: [
               imgIcon(iconUrl(pId), def.name, 'codex-icon'),
               el('div', {
@@ -156,9 +286,22 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
                     className: 'stage-card-top',
                     children: [
                       el('span', { className: 'codex-name', text: def.name }),
-                      el('span', {
-                        className: `tag-badge ${known ? 'tag-badge-gold' : ''}`,
-                        text: `上限 Lv.${def.maxLevel}`,
+                      el('div', {
+                        className: 'title-meta-pills',
+                        children: [
+                          el('span', {
+                            className: `tag-badge ${known ? 'tag-badge-gold' : ''}`,
+                            text: `上限 Lv.${def.maxLevel}`,
+                          }),
+                          known
+                            ? el('button', {
+                                className: `gothic-btn seal-toggle-btn ${sealed ? 'gothic-btn-danger' : ''}`,
+                                text: sealed ? '已封印' : '封印',
+                                dataset: { testid: `btn-seal-${pId}` },
+                                onClick: () => handleToggleSeal(pId),
+                              })
+                            : null,
+                        ],
                       }),
                     ],
                   }),

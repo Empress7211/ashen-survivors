@@ -1,8 +1,46 @@
-import { HERO_IDS } from '../contracts/ids.ts';
-import type { AudioCue, Catalog, HeroId } from '../contracts/index.ts';
+import { HERO_IDS, STAGE_IDS } from '../contracts/ids.ts';
+import type { AudioCue, Catalog, HeroId, SaveState, StageId } from '../contracts/index.ts';
 import { calculatePlayerStats, type SaveStore } from '../core/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatInt, formatStatDisplayList, iconUrl } from '../app/formatters.ts';
+
+type SaveStoreWithHeroClears = SaveStore & {
+  getHeroStageClears?: (heroId: HeroId) => { normal: StageId[]; hyper: StageId[] };
+};
+
+type SaveStateWithHeroClears = SaveState & {
+  heroStageClears?: Partial<Record<HeroId, StageId[]>>;
+  heroHyperClears?: Partial<Record<HeroId, StageId[]>>;
+};
+
+function resolveHeroStageClears(
+  saveStore: SaveStore,
+  state: SaveState,
+  heroId: HeroId,
+): { normal: Set<StageId>; hyper: Set<StageId> } {
+  const storeExt = saveStore as SaveStoreWithHeroClears;
+  if (typeof storeExt.getHeroStageClears === 'function') {
+    const res = storeExt.getHeroStageClears(heroId);
+    return {
+      normal: new Set(res.normal),
+      hyper: new Set(res.hyper),
+    };
+  }
+
+  const stateExt = state as SaveStateWithHeroClears;
+  const normal = new Set<StageId>(stateExt.heroStageClears?.[heroId] ?? []);
+  const hyper = new Set<StageId>(stateExt.heroHyperClears?.[heroId] ?? []);
+  for (const sId of STAGE_IDS) {
+    const rec = state.bestRunByStage[sId];
+    if (!rec || rec.lastHeroId !== heroId) continue;
+    if (rec.clears > 0) normal.add(sId);
+    if (rec.hyperCleared) {
+      normal.add(sId);
+      hyper.add(sId);
+    }
+  }
+  return { normal, hyper };
+}
 
 export interface HeroSelectDeps {
   catalog: Catalog;
@@ -95,6 +133,7 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
       const isPurchased = saveStore.isHeroPurchased(hId);
       const isSelected = inspectedHeroId === hId;
       const weaponDef = catalog.weapons[def.startingWeapon];
+      const clears = resolveHeroStageClears(saveStore, state, hId);
 
       let statusTag: HTMLElement;
       if (!isUnlocked) {
@@ -106,6 +145,28 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
       } else {
         statusTag = el('span', { className: 'tag-badge', text: '已拥有' });
       }
+
+      const cardClearsRow = el('div', {
+        className: 'hero-clears-row',
+        dataset: { testid: `hero-clears-${hId}` },
+        children: STAGE_IDS.map((sId) => {
+          const st = catalog.stages[sId];
+          const isHyper = clears.hyper.has(sId);
+          const isNormal = clears.normal.has(sId);
+          const mode = isHyper ? 'hyper' : isNormal ? 'normal' : 'none';
+          const label = isHyper
+            ? `${st.name}：狂热 (Hyper) 已通关`
+            : isNormal
+              ? `${st.name}：普通模式已通关`
+              : `${st.name}：尚未通关`;
+          return el('span', {
+            className: `hero-clear-medal ${mode}`,
+            text: isHyper ? `${st.order}★` : String(st.order),
+            attrs: { title: label, 'aria-label': label },
+            dataset: { stage: sId, clear: mode },
+          });
+        }),
+      });
 
       const card = el('button', {
         className: `hero-card ${isSelected ? 'selected' : ''} ${!isUnlocked ? 'locked' : ''}`,
@@ -123,6 +184,7 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
               weaponDef.name,
             ],
           }),
+          cardClearsRow,
           statusTag,
         ],
         onClick: () => {
@@ -156,6 +218,44 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
             ],
           }),
         ),
+    });
+
+    const inspectedClears = resolveHeroStageClears(saveStore, state, inspectedHeroId);
+    const detailClearsSection = el('div', {
+      className: 'detail-clears-panel',
+      dataset: { testid: `hero-detail-clears-${inspectedHeroId}` },
+      children: [
+        el('div', {
+          className: 'detail-clears-head',
+          children: [
+            el('span', { className: 'stat-row-label', text: '关卡通关徽章' }),
+            el('span', {
+              className: 'tag-badge tag-badge-gold num-font',
+              text: `普通 ${inspectedClears.normal.size}/${STAGE_IDS.length} · 狂热 ${inspectedClears.hyper.size}/${STAGE_IDS.length}`,
+            }),
+          ],
+        }),
+        el('div', {
+          className: 'detail-clears-grid',
+          children: STAGE_IDS.map((sId) => {
+            const st = catalog.stages[sId];
+            const isHyper = inspectedClears.hyper.has(sId);
+            const isNormal = inspectedClears.normal.has(sId);
+            const mode = isHyper ? 'hyper' : isNormal ? 'normal' : 'none';
+            return el('div', {
+              className: `detail-clear-chip ${mode}`,
+              dataset: { stage: sId, clear: mode },
+              children: [
+                el('span', { className: 'detail-clear-stage', text: `${st.order}. ${st.name}` }),
+                el('span', {
+                  className: `tag-badge ${isHyper ? 'tag-badge-crimson' : isNormal ? 'tag-badge-gold' : ''}`,
+                  text: isHyper ? 'HYPER' : isNormal ? '普通' : '未通关',
+                }),
+              ],
+            });
+          }),
+        }),
+      ],
     });
 
     let actionBtn: HTMLButtonElement;
@@ -198,6 +298,7 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
 
     const detailPane = el('aside', {
       className: 'gothic-panel detail-pane',
+      attrs: { id: 'hero-detail-pane' },
       dataset: { testid: 'hero-detail-pane' },
       children: [
         el('div', {
@@ -231,6 +332,7 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
             }),
           ],
         }),
+        detailClearsSection,
         el('div', {
           className: 'status-banner ok',
           text: `角色特性：${hero.passiveSummary}`,

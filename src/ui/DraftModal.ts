@@ -151,8 +151,8 @@ export function renderDraftModal(deps: DraftModalDeps): HTMLElement {
                   el('p', {
                     className: 'modal-subtitle',
                     text: isArcana
-                      ? 'ARCANA TAROT DRAFT · 按数字键 1-4 选择'
-                      : 'LEVEL UP · 按数字键 1-4 或点击卡牌选择强化',
+                      ? 'ARCANA TAROT DRAFT · 按数字键 1-4 或手柄 A 确认 / X 重随'
+                      : 'LEVEL UP · 按数字键 1-4 或手柄 A 选择 / X 重随 / Y 放逐',
                   }),
                 ],
               }),

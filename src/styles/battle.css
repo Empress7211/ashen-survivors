@@ -30,7 +30,8 @@
 .hud-xp-bar-wrap {
   position: relative;
   width: 100%;
-  height: 16px;
+  height: calc(16px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
   background: rgba(6, 5, 10, 0.92);
   border-bottom: 1px solid rgba(212, 175, 55, 0.55);
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.7);
@@ -49,8 +50,8 @@
 
 .hud-lv-badge {
   position: absolute;
-  right: 14px;
-  top: 50%;
+  right: calc(14px + env(safe-area-inset-right, 0px));
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
   transform: translateY(-50%);
   padding: 1px 10px;
   border-radius: 999px;
@@ -68,7 +69,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  padding: 10px 14px;
+  padding:
+    10px
+    calc(14px + env(safe-area-inset-right, 0px))
+    10px
+    calc(14px + env(safe-area-inset-left, 0px));
 }
 
 .hud-slots-column {
@@ -102,11 +107,119 @@
 
 .hud-slot.filled {
   border-color: rgba(212, 175, 55, 0.45);
+  pointer-events: auto;
+  cursor: help;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.hud-slot.filled:hover,
+.hud-slot.filled:focus,
+.hud-slot.filled:focus-within {
+  z-index: 25;
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 12px var(--gold-glow);
 }
 
 .hud-slot.evolved {
   border-color: var(--crimson-bright);
   box-shadow: 0 0 10px rgba(224, 60, 73, 0.45);
+}
+
+.hud-slot-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  min-width: 215px;
+  max-width: min(295px, 72vw);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--gold-border-strong);
+  background: linear-gradient(180deg, rgba(22, 18, 32, 0.98), rgba(10, 8, 15, 0.99));
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.88), 0 0 16px rgba(212, 175, 55, 0.22);
+  color: var(--text-parchment);
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s ease;
+  z-index: 40;
+}
+
+.hud-slot.filled:hover > .hud-slot-tooltip,
+.hud-slot.filled:focus > .hud-slot-tooltip,
+.hud-slot.filled:focus-within > .hud-slot-tooltip,
+.grimoire-slot:hover > .hud-slot-tooltip,
+.grimoire-slot:focus > .hud-slot-tooltip,
+.grimoire-slot:focus-within > .hud-slot-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.hud-slot-tooltip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.hud-slot-tooltip-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.hud-slot-tooltip-desc {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-silver);
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.hud-slot-tooltip-detail {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: #e9d9b4;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.hud-slot-tooltip-synergy {
+  margin: 5px 0 0;
+  padding-top: 5px;
+  border-top: 1px solid rgba(212, 175, 55, 0.22);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.hud-slot-tooltip-synergy.ready {
+  color: var(--emerald-bright);
+}
+
+.pause-loadout-strip {
+  flex-wrap: wrap;
+}
+
+.grimoire-slot {
+  position: relative;
+  cursor: help;
+}
+
+.grimoire-slot:hover,
+.grimoire-slot:focus,
+.grimoire-slot:focus-within {
+  z-index: 25;
+}
+
+.grimoire-row > .grimoire-slot:last-child > .hud-slot-tooltip {
+  left: auto;
+  right: 0;
 }
 
 .hud-slot img {
@@ -315,6 +428,41 @@
   color: var(--text-silver);
 }
 
+.hud-minimap-wrap {
+  position: relative;
+  width: 118px;
+  height: 84px;
+  border-radius: 9px;
+  border: 1px solid var(--gold-border);
+  background: rgba(9, 7, 14, 0.88);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.72), inset 0 0 10px rgba(212, 175, 55, 0.14);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hud-minimap-wrap.has-map {
+  border-color: rgba(180, 140, 255, 0.75);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.78), 0 0 12px rgba(131, 82, 230, 0.3);
+}
+
+.hud-minimap-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hud-minimap-badge {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(244, 216, 125, 0.85);
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
 /* Battle Loading Overlay */
 .battle-loading-overlay {
   position: absolute;
@@ -376,8 +524,8 @@
 /* Mid-run Achievement Toast */
 .achievement-toast-stack {
   position: absolute;
-  bottom: 24px;
-  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  right: calc(24px + env(safe-area-inset-right, 0px));
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
@@ -824,5 +972,9 @@
   .hud-slot img {
     width: 20px;
     height: 20px;
+  }
+  .hud-minimap-wrap {
+    width: 92px;
+    height: 66px;
   }
 }
