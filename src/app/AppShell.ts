@@ -275,7 +275,6 @@ export class AppShell {
       renderCollectionModal({
         catalog: this.catalog,
         saveStore: this.saveStore,
-        saveState: this.saveStore.getState(),
         onClose: () => this.closeOverlay(),
         onCue: this.playCue,
       }),

@@ -1,44 +1,17 @@
 import { HERO_IDS, STAGE_IDS } from '../contracts/ids.ts';
-import type { AudioCue, Catalog, HeroId, SaveState, StageId } from '../contracts/index.ts';
+import type { AudioCue, Catalog, HeroId, StageId } from '../contracts/index.ts';
 import { calculatePlayerStats, type SaveStore } from '../core/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatInt, formatStatDisplayList, iconUrl } from '../app/formatters.ts';
 
-type SaveStoreWithHeroClears = SaveStore & {
-  getHeroStageClears?: (heroId: HeroId) => { normal: StageId[]; hyper: StageId[] };
-};
-
-type SaveStateWithHeroClears = SaveState & {
-  heroStageClears?: Partial<Record<HeroId, StageId[]>>;
-  heroHyperClears?: Partial<Record<HeroId, StageId[]>>;
-};
-
 function resolveHeroStageClears(
   saveStore: SaveStore,
-  state: SaveState,
   heroId: HeroId,
 ): { normal: Set<StageId>; hyper: Set<StageId> } {
-  const storeExt = saveStore as SaveStoreWithHeroClears;
-  if (typeof storeExt.getHeroStageClears === 'function') {
-    const res = storeExt.getHeroStageClears(heroId);
-    return {
-      normal: new Set(res.normal),
-      hyper: new Set(res.hyper),
-    };
-  }
-
-  const stateExt = state as SaveStateWithHeroClears;
-  const normal = new Set<StageId>(stateExt.heroStageClears?.[heroId] ?? []);
-  const hyper = new Set<StageId>(stateExt.heroHyperClears?.[heroId] ?? []);
-  for (const sId of STAGE_IDS) {
-    const rec = state.bestRunByStage[sId];
-    if (!rec || rec.lastHeroId !== heroId) continue;
-    if (rec.clears > 0) normal.add(sId);
-    if (rec.hyperCleared) {
-      normal.add(sId);
-      hyper.add(sId);
-    }
-  }
+  const res = saveStore.getHeroStageClears(heroId);
+  const normal = new Set<StageId>(res.normal);
+  const hyper = new Set<StageId>(res.hyper);
+  for (const sId of hyper) normal.add(sId);
   return { normal, hyper };
 }
 
@@ -133,7 +106,7 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
       const isPurchased = saveStore.isHeroPurchased(hId);
       const isSelected = inspectedHeroId === hId;
       const weaponDef = catalog.weapons[def.startingWeapon];
-      const clears = resolveHeroStageClears(saveStore, state, hId);
+      const clears = resolveHeroStageClears(saveStore, hId);
 
       let statusTag: HTMLElement;
       if (!isUnlocked) {
@@ -220,7 +193,7 @@ export function renderHeroSelectScreen(deps: HeroSelectDeps): HTMLElement {
         ),
     });
 
-    const inspectedClears = resolveHeroStageClears(saveStore, state, inspectedHeroId);
+    const inspectedClears = resolveHeroStageClears(saveStore, inspectedHeroId);
     const detailClearsSection = el('div', {
       className: 'detail-clears-panel',
       dataset: { testid: `hero-detail-clears-${inspectedHeroId}` },

@@ -10,26 +10,14 @@ import type {
   BaseWeaponId,
   Catalog,
   PassiveId,
-  SaveState,
 } from '../contracts/index.ts';
+import type { SaveStore } from '../core/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { iconUrl } from '../app/formatters.ts';
 
-export interface CollectionSaveStoreLike {
-  getState(): SaveState;
-  getMaxSealCount?: () => number;
-  getSealedItems?: () => readonly string[];
-  isItemSealed?: (itemId: string) => boolean;
-  toggleSealItem?: (
-    itemId: BaseWeaponId | PassiveId,
-  ) => { ok: boolean; sealed: boolean; error?: string };
-  clearSealedItems?: () => void;
-}
-
 export interface CollectionModalDeps {
   catalog: Catalog;
-  saveStore?: CollectionSaveStoreLike;
-  saveState?: SaveState;
+  saveStore: SaveStore;
   onClose: () => void;
   onCue: (cue: AudioCue) => void;
 }
@@ -41,24 +29,6 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
   let activeTab: CollectionTab = 'grimoire';
   let sealFeedback: { ok: boolean; text: string } | null = null;
 
-  const getSaveState = (): SaveState => {
-    const state = saveStore?.getState() ?? deps.saveState;
-    if (!state) {
-      throw new Error('renderCollectionModal requires saveStore or saveState');
-    }
-    return state;
-  };
-
-  const getMaxSeals = (state: SaveState): number =>
-    saveStore?.getMaxSealCount?.() ?? 4 + state.unlockedStages.length * 2;
-
-  const getSealedSet = (state: SaveState): Set<string> => {
-    const fromStore = saveStore?.getSealedItems?.();
-    if (fromStore) return new Set(fromStore);
-    const ext = (state as SaveState & { sealedItems?: readonly string[] }).sealedItems;
-    return new Set(ext ?? []);
-  };
-
   const backdrop = el('div', {
     className: 'modal-backdrop',
     dataset: { testid: 'modal-collection' },
@@ -66,23 +36,14 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
 
   const renderContent = (): void => {
     backdrop.replaceChildren();
-    const saveState = getSaveState();
+    const saveState = saveStore.getState();
     const discoveredSet = new Set(saveState.discoveredItems);
     const unlockedRelics = new Set(saveState.unlockedRelics);
     const unlockedArcanas = new Set(saveState.unlockedArcanas);
-    const sealedSet = getSealedSet(saveState);
-    const maxSeals = getMaxSeals(saveState);
-
-    const isItemSealed = (id: string): boolean =>
-      saveStore?.isItemSealed ? saveStore.isItemSealed(id) : sealedSet.has(id);
+    const sealedSet = new Set(saveStore.getSealedItems());
+    const maxSeals = saveStore.getMaxSealCount();
 
     const handleToggleSeal = (id: BaseWeaponId | PassiveId): void => {
-      if (!saveStore?.toggleSealItem) {
-        sealFeedback = { ok: false, text: '当前存档接口不支持封印操作。' };
-        onCue({ type: 'ui_error' });
-        renderContent();
-        return;
-      }
       const res = saveStore.toggleSealItem(id);
       if (res.ok) {
         sealFeedback = null;
@@ -115,10 +76,9 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
           el('button', {
             className: 'gothic-btn gothic-btn-danger',
             text: '解除全部封印',
-            attrs: { disabled: sealedSet.size === 0 || !saveStore?.clearSealedItems },
+            attrs: { disabled: sealedSet.size === 0 },
             dataset: { testid: 'btn-clear-seals' },
             onClick: () => {
-              if (!saveStore?.clearSealedItems) return;
               saveStore.clearSealedItems();
               sealFeedback = null;
               onCue({ type: 'ui_click' });
@@ -218,7 +178,7 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
         const def = catalog.weapons[wId];
         const known = discoveredSet.has(wId);
         const canSeal = known && !def.isEvolved;
-        const sealed = canSeal && isItemSealed(wId);
+        const sealed = canSeal && saveStore.isItemSealed(wId);
         grid.appendChild(
           el('div', {
             className: `codex-card ${known ? '' : 'undiscovered'} ${sealed ? 'sealed' : ''}`,
@@ -273,7 +233,7 @@ export function renderCollectionModal(deps: CollectionModalDeps): HTMLElement {
       for (const pId of PASSIVE_IDS) {
         const def = catalog.passives[pId];
         const known = discoveredSet.has(pId);
-        const sealed = known && isItemSealed(pId);
+        const sealed = known && saveStore.isItemSealed(pId);
         grid.appendChild(
           el('div', {
             className: `codex-card ${known ? '' : 'undiscovered'} ${sealed ? 'sealed' : ''}`,

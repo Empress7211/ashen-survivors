@@ -1,6 +1,10 @@
 import { defineConfig } from '@playwright/test';
 
 const ROOT_DIR = decodeURIComponent(new URL('../..', import.meta.url).pathname);
+const ARTIFACT_DIR =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env?.ARTIFACT_DIR ??
+  decodeURIComponent(new URL('../../test-results/artifacts', import.meta.url).pathname);
 
 export default defineConfig({
   testDir: '.',
@@ -13,8 +17,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: 'list',
-  outputDir:
-    '/Users/Arthur/.gemini/antigravity/brain/fbe84a86-5bd3-41af-9914-cafaae1d0550/pw-artifacts',
+  outputDir: `${ARTIFACT_DIR}/pw-artifacts`,
   use: {
     baseURL: 'http://127.0.0.1:4173',
     viewport: { width: 1280, height: 800 },

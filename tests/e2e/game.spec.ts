@@ -1,7 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const ARTIFACT_DIR =
-  '/Users/Arthur/.gemini/antigravity/brain/fbe84a86-5bd3-41af-9914-cafaae1d0550';
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env?.ARTIFACT_DIR ??
+  decodeURIComponent(new URL('../../test-results/artifacts', import.meta.url).pathname);
 const SAVE_STORAGE_KEY = 'ashen_survivors_save_v1';
 
 interface AuditTracker {
@@ -9,6 +11,9 @@ interface AuditTracker {
   pageErrors: string[];
   failedResponses: string[];
   failedRequests: string[];
+  webpIcons: string[];
+  woff2Fonts: string[];
+  legacyAssetRequests: string[];
   assertClean: () => void;
 }
 
@@ -17,6 +22,9 @@ function attachZeroErrorAudit(page: Page): AuditTracker {
   const pageErrors: string[] = [];
   const failedResponses: string[] = [];
   const failedRequests: string[] = [];
+  const webpIcons: string[] = [];
+  const woff2Fonts: string[] = [];
+  const legacyAssetRequests: string[] = [];
 
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
@@ -27,8 +35,18 @@ function attachZeroErrorAudit(page: Page): AuditTracker {
     pageErrors.push(String(err));
   });
   page.on('response', (res) => {
+    const url = res.url();
     if (res.status() >= 400) {
-      failedResponses.push(`${res.status()} ${res.url()}`);
+      failedResponses.push(`${res.status()} ${url}`);
+    } else {
+      const pathname = new URL(url).pathname;
+      if (pathname.startsWith('/assets/icons/')) {
+        if (pathname.endsWith('.webp')) webpIcons.push(pathname);
+        else if (pathname.endsWith('.png')) legacyAssetRequests.push(pathname);
+      } else if (pathname.startsWith('/assets/fonts/')) {
+        if (pathname.endsWith('.woff2')) woff2Fonts.push(pathname);
+        else if (pathname.endsWith('.ttf')) legacyAssetRequests.push(pathname);
+      }
     }
   });
   page.on('requestfailed', (req) => {
@@ -41,11 +59,15 @@ function attachZeroErrorAudit(page: Page): AuditTracker {
     pageErrors,
     failedResponses,
     failedRequests,
+    webpIcons,
+    woff2Fonts,
+    legacyAssetRequests,
     assertClean: () => {
       expect(consoleErrors, 'console.error list').toEqual([]);
       expect(pageErrors, 'pageerror list').toEqual([]);
       expect(failedResponses, 'HTTP >= 400 responses').toEqual([]);
       expect(failedRequests, 'failed network requests').toEqual([]);
+      expect(legacyAssetRequests, 'legacy .png icons or .ttf fonts').toEqual([]);
     },
   };
 }
@@ -73,7 +95,15 @@ async function assertAllImagesLoaded(page: Page, contextLabel: string): Promise<
       .map((img) => img.getAttribute('src') ?? img.alt);
   });
 
+  const nonWebpIcons = await page.evaluate(() => {
+    const imgs = Array.from(document.querySelectorAll('img'));
+    return imgs
+      .map((img) => img.getAttribute('src') ?? '')
+      .filter((src) => src.includes('/assets/icons/') && !src.endsWith('.webp'));
+  });
+
   expect(broken, `broken <img> elements on ${contextLabel}`).toEqual([]);
+  expect(nonWebpIcons, `non-WebP icons on ${contextLabel}`).toEqual([]);
 }
 
 async function assertNoInvalidText(page: Page, contextLabel: string): Promise<void> {
@@ -145,11 +175,23 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
 
     await assertAllImagesLoaded(page, 'Title Screen');
     await assertNoInvalidText(page, 'Title Screen');
+    const fontsLoaded = await page.evaluate(async () => {
+      await document.fonts.ready;
+      return Array.from(document.fonts).some((f) => f.status === 'loaded');
+    });
+    expect(fontsLoaded, 'expected subsetted .woff2 fonts to load').toBe(true);
+    expect(audit.woff2Fonts.length, 'expected .woff2 font HTTP responses').toBeGreaterThan(0);
     await shot(page, '01-title-screen.png');
 
-    // Open Settings & test JSON Export + Import with 2,500 G
+    // Open Settings, verify minimap toggle, & test JSON Export + Import with 2,500 G
     await page.getByTestId('btn-settings').click();
     await expect(page.getByTestId('modal-settings')).toBeVisible();
+    const settingsMinimapBtn = page.getByTestId('btn-settings-minimap');
+    await expect(settingsMinimapBtn).toHaveText('开启');
+    await settingsMinimapBtn.click();
+    await expect(settingsMinimapBtn).toHaveText('关闭');
+    await settingsMinimapBtn.click();
+    await expect(settingsMinimapBtn).toHaveText('开启');
     await page.getByTestId('btn-export-save').click();
     await shot(page, '06-settings.png');
 
@@ -192,12 +234,28 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await page.getByTestId('btn-powerups-back').click();
     await expect(page.getByTestId('screen-title')).toBeVisible();
 
-    // Collection & Grimoire modal across all 5 tabs
+    // Collection & Grimoire modal across all 5 tabs + Collection Seal toggle/clear
     await page.getByTestId('btn-collection').click();
     await expect(page.getByTestId('modal-collection')).toBeVisible();
     await assertAllImagesLoaded(page, 'Collection Grimoire');
+
+    await page.getByTestId('collection-tab-weapons').click();
+    await assertAllImagesLoaded(page, 'Collection tab weapons');
+    await expect(page.getByTestId('seal-count-pill')).toContainText('0 / 6');
+    await expect(page.getByTestId('btn-clear-seals')).toBeDisabled();
+    await expect(page.getByTestId('btn-seal-whip')).toHaveText('封印');
+    await page.getByTestId('btn-seal-whip').click();
+    await expect(page.getByTestId('btn-seal-whip')).toHaveText('已封印');
+    await expect(page.getByTestId('seal-count-pill')).toContainText('1 / 6');
+    await expect(page.getByTestId('btn-clear-seals')).toBeEnabled();
     await shot(page, '03-collection.png');
-    for (const tab of ['weapons', 'passives', 'arcanas', 'relics'] as const) {
+
+    await page.getByTestId('btn-clear-seals').click();
+    await expect(page.getByTestId('btn-seal-whip')).toHaveText('封印');
+    await expect(page.getByTestId('seal-count-pill')).toContainText('0 / 6');
+    await expect(page.getByTestId('btn-clear-seals')).toBeDisabled();
+
+    for (const tab of ['passives', 'arcanas', 'relics'] as const) {
       await page.getByTestId(`collection-tab-${tab}`).click();
       await assertAllImagesLoaded(page, `Collection tab ${tab}`);
     }
@@ -222,6 +280,7 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await shot(page, '05-achievements.png');
     await page.getByTestId('btn-close-achievements').click();
 
+    expect(audit.webpIcons.length, 'expected .webp icon HTTP responses').toBeGreaterThan(0);
     audit.assertClean();
   });
 
@@ -236,6 +295,10 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
 
     await page.getByTestId('btn-start-hunt').click();
     await expect(page.getByTestId('screen-hero-select')).toBeVisible();
+    await expect(page.getByTestId('hero-clears-antonio')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="hero-clears-antonio"] .hero-clear-medal'),
+    ).toHaveCount(5);
     await assertAllImagesLoaded(page, 'Hero Select');
     await assertNoInvalidText(page, 'Hero Select');
     await shot(page, '07-hero-select.png');
@@ -253,8 +316,16 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await page.getByTestId('btn-stage-start').click();
     await expect(page.getByTestId('screen-battle')).toBeVisible();
     await expect(page.getByTestId('battle-hud')).toBeVisible();
+    await expect(page.getByTestId('hud-minimap')).toBeVisible();
+    await expect(page.getByTestId('hud-minimap')).toContainText('雷达');
+    const minimapBox = await page
+      .locator('[data-testid="hud-minimap"] canvas.hud-minimap-canvas')
+      .boundingBox();
+    expect(minimapBox).not.toBeNull();
+    expect(minimapBox!.width).toBeGreaterThanOrEqual(80);
+    expect(minimapBox!.height).toBeGreaterThanOrEqual(50);
 
-    const canvas = page.locator('[data-testid="screen-battle"] canvas');
+    const canvas = page.locator('[data-testid="screen-battle"] .battle-canvas-host canvas');
     await expect(canvas).toBeVisible();
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
@@ -321,12 +392,20 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await expect(page.getByTestId('modal-level-up')).toBeHidden();
     await expect(page.getByTestId('hud-level')).toContainText('Lv. 2');
 
-    // Pause via Space -> verify Grimoire & Milky Way Map -> screenshot
+    // Pause via Space -> verify Grimoire, Milky Way Map & live HUD minimap toggle -> screenshot
     await page.keyboard.press('Space');
     await expect(page.getByTestId('modal-pause')).toBeVisible();
     await expect(page.getByTestId('pause-grimoire-section')).toBeVisible();
     await expect(page.getByTestId('pause-minimap-section')).toBeVisible();
     await expect(page.locator('[data-testid="pause-minimap-section"] svg.minimap-svg')).toBeVisible();
+    const pauseMinimapBtn = page.getByTestId('btn-pause-minimap');
+    await expect(pauseMinimapBtn).toHaveText('开启');
+    await pauseMinimapBtn.click();
+    await expect(pauseMinimapBtn).toHaveText('关闭');
+    await expect(page.getByTestId('hud-minimap')).toBeHidden();
+    await pauseMinimapBtn.click();
+    await expect(pauseMinimapBtn).toHaveText('开启');
+    await expect(page.getByTestId('hud-minimap')).toBeVisible();
     await page.keyboard.press('KeyG');
     await page.keyboard.press('KeyM');
     await assertAllImagesLoaded(page, 'Pause Modal');
@@ -386,7 +465,18 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
         unlockedAchievements: ['ach_unlock_library'],
         discoveredItems: ['whip', 'magic_wand', 'relic_grimoire', 'relic_map'],
         bestiaryKills: {},
-        bestRunByStage: {},
+        bestRunByStage: {
+          mad_forest: {
+            bestTimeSeconds: 1800,
+            bestLevel: 32,
+            bestKills: 4200,
+            clears: 1,
+            hyperCleared: true,
+            lastHeroId: 'antonio',
+          },
+        },
+        heroStageClears: { antonio: ['mad_forest'] },
+        heroHyperClears: { antonio: ['mad_forest'] },
         selectedHeroId: 'antonio',
         selectedStageId: 'inlaid_library',
         stageOptions: {
@@ -412,6 +502,14 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     await page.reload();
 
     await page.getByTestId('btn-start-hunt').click();
+    await expect(page.getByTestId('screen-hero-select')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="hero-clears-antonio"] [data-stage="mad_forest"]'),
+    ).toHaveAttribute('data-clear', 'hyper');
+    await expect(page.getByTestId('hero-detail-clears-antonio')).toContainText(
+      '普通 1/5 · 狂热 1/5',
+    );
+    await shot(page, '07b-hero-select-clears.png');
     await page.getByTestId('btn-hero-confirm').click();
     await expect(page.getByTestId('screen-stage-select')).toBeVisible();
     await page.getByTestId('stage-card-inlaid_library').click();
@@ -420,6 +518,8 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
 
     await page.getByTestId('btn-stage-start').click();
     await expect(page.getByTestId('screen-battle')).toBeVisible();
+    await expect(page.getByTestId('hud-minimap')).toBeVisible();
+    await expect(page.getByTestId('hud-minimap')).toContainText('银河地图');
 
     await expect
       .poll(async () => page.getByTestId('hud-timer').innerText(), { timeout: 10_000 })

@@ -361,10 +361,7 @@ export class BattleController {
         const frame = this.sim.getRenderFrame();
         this.syncFrame(frame, alpha);
       } else {
-        (this.renderer as { render(s: RenderFrameState, a?: number): void }).render(
-          this.currentFrame,
-          alpha,
-        );
+        this.renderer.render(this.currentFrame, alpha);
       }
     } else {
       this.accumulator = 0;
@@ -460,10 +457,7 @@ export class BattleController {
       this.audio.playCues(frame.audioCues);
     }
 
-    (this.renderer as { render(state: RenderFrameState, alpha?: number): void }).render(
-      frame,
-      alpha,
-    );
+    this.renderer.render(frame, alpha);
     this.renderer.setPaused(!isPlaying);
     this.hud.update(frame, this.audio.isMuted(), {
       showMinimap: this.saveStore.getState().settings.showMinimap,

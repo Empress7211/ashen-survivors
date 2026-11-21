@@ -4,7 +4,6 @@ import type {
   Catalog,
   HudSnapshot,
   PassiveSlotSnapshot,
-  PauseMapMarker,
   RenderFrameState,
   WeaponSlotSnapshot,
 } from '../contracts/index.ts';
@@ -17,11 +16,6 @@ const MINIMAP_H = 84;
 const MINIMAP_DPR = 2;
 const MINIMAP_RANGE_WORLD = 1350;
 const MINIMAP_TICK_INTERVAL = 6;
-
-type HudSnapshotWithRadar = HudSnapshot & {
-  hasMilkyWayMap?: boolean;
-  mapMarkers?: readonly PauseMapMarker[];
-};
 
 export interface SlotTooltipData {
   name: string;
@@ -542,8 +536,8 @@ export class BattleHudView {
   }
 
   private renderMinimap(frame: RenderFrameState): void {
-    const hudExt = frame.hud as HudSnapshotWithRadar;
-    const hasMap = Boolean(hudExt.hasMilkyWayMap);
+    const hasMap = Boolean(frame.hud.hasMilkyWayMap);
+    const mapMarkers = frame.hud.mapMarkers;
     if (hasMap !== this.lastHasMapBadge) {
       this.lastHasMapBadge = hasMap;
       this.minimapWrap.classList.toggle('has-map', hasMap);
@@ -608,9 +602,9 @@ export class BattleHudView {
     };
 
     // Relics, ground passives, and chests (via hud.mapMarkers when provided, or frame.pickups when hasMilkyWayMap is active)
-    if (hudExt.mapMarkers && hudExt.mapMarkers.length > 0) {
-      for (let i = 0; i < hudExt.mapMarkers.length; i++) {
-        const m = hudExt.mapMarkers[i]!;
+    if (mapMarkers && mapMarkers.length > 0) {
+      for (let i = 0; i < mapMarkers.length; i++) {
+        const m = mapMarkers[i]!;
         if (m.kind === 'player') continue;
         const color =
           m.kind === 'relic' ? '#b48cff' : m.kind === 'passive' ? '#60e3aa' : '#f4d87d';
