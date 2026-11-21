@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+tools/__pycache__/
+tools/raw_world/
+tools/raw_entities/
+output/
+test-results/
+playwright-report/

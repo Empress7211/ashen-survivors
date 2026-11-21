@@ -1,0 +1,53 @@
+:root {
+  /* Core Palette - Dark Gothic Obsidian / Crimson / Antique Gold */
+  --bg-void: #08070b;
+  --bg-obsidian: #0f0d15;
+  --bg-panel: #15121d;
+  --bg-panel-elevated: #1c1827;
+  --bg-panel-glass: rgba(14, 12, 20, 0.9);
+  --bg-panel-solid: rgba(18, 15, 25, 0.97);
+
+  --text-parchment: #f2e8d5;
+  --text-silver: #cfc4b2;
+  --text-muted: #988c79;
+  --text-dim: #6f6557;
+
+  --gold: #d4af37;
+  --gold-bright: #f4d87d;
+  --gold-dim: #8a6d23;
+  --gold-border: rgba(212, 175, 55, 0.34);
+  --gold-border-strong: rgba(244, 216, 125, 0.72);
+  --gold-glow: rgba(212, 175, 55, 0.24);
+
+  --crimson: #a81e2a;
+  --crimson-bright: #e03c49;
+  --crimson-deep: #4c0c13;
+  --crimson-glow: rgba(224, 60, 73, 0.35);
+
+  --arcana: #8352e6;
+  --arcana-bright: #b48cff;
+  --arcana-glow: rgba(131, 82, 230, 0.35);
+
+  --emerald: #36b37e;
+  --emerald-bright: #60e3aa;
+  --cyan: #4fc3f7;
+
+  /* Typography */
+  --font-sc: 'Noto Serif SC', 'Cinzel', Georgia, serif;
+  --font-num: 'Cinzel', 'Noto Serif SC', Georgia, serif;
+
+  /* Borders & Shadows */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-card: 0 10px 28px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 238, 198, 0.08);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.88), 0 0 0 1px rgba(212, 175, 55, 0.32);
+
+  /* Z-index layers */
+  --z-canvas: 1;
+  --z-hud: 20;
+  --z-joystick: 30;
+  --z-toast: 45;
+  --z-modal: 60;
+  --z-confirm: 80;
+}

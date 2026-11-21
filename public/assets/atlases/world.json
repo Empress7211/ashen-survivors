@@ -1,0 +1,447 @@
+{
+  "frames": {
+    "brazier": {
+      "frame": {
+        "x": 538,
+        "y": 6,
+        "w": 78,
+        "h": 124
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 78,
+        "h": 124
+      },
+      "sourceSize": {
+        "w": 78,
+        "h": 124
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "candelabra": {
+      "frame": {
+        "x": 479,
+        "y": 6,
+        "w": 53,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 53,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 53,
+        "h": 128
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "streetlamp": {
+      "frame": {
+        "x": 228,
+        "y": 6,
+        "w": 38,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 38,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 38,
+        "h": 160
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "dead_tree": {
+      "frame": {
+        "x": 6,
+        "y": 6,
+        "w": 146,
+        "h": 176
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 146,
+        "h": 176
+      },
+      "sourceSize": {
+        "w": 146,
+        "h": 176
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "gravestone": {
+      "frame": {
+        "x": 756,
+        "y": 6,
+        "w": 74,
+        "h": 120
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 74,
+        "h": 120
+      },
+      "sourceSize": {
+        "w": 74,
+        "h": 120
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "bookshelf": {
+      "frame": {
+        "x": 272,
+        "y": 6,
+        "w": 89,
+        "h": 152
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 89,
+        "h": 152
+      },
+      "sourceSize": {
+        "w": 89,
+        "h": 152
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "minecart": {
+      "frame": {
+        "x": 622,
+        "y": 6,
+        "w": 128,
+        "h": 123
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 123
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 123
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "stone_pillar": {
+      "frame": {
+        "x": 158,
+        "y": 6,
+        "w": 64,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 64,
+        "h": 160
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "stained_pedestal": {
+      "frame": {
+        "x": 367,
+        "y": 6,
+        "w": 106,
+        "h": 144
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 106,
+        "h": 144
+      },
+      "sourceSize": {
+        "w": 106,
+        "h": 144
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "rubble": {
+      "frame": {
+        "x": 703,
+        "y": 188,
+        "w": 112,
+        "h": 91
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 112,
+        "h": 91
+      },
+      "sourceSize": {
+        "w": 112,
+        "h": 91
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_bronze": {
+      "frame": {
+        "x": 507,
+        "y": 188,
+        "w": 92,
+        "h": 96
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 92,
+        "h": 96
+      },
+      "sourceSize": {
+        "w": 92,
+        "h": 96
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_silver": {
+      "frame": {
+        "x": 605,
+        "y": 188,
+        "w": 92,
+        "h": 96
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 92,
+        "h": 96
+      },
+      "sourceSize": {
+        "w": 92,
+        "h": 96
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_gold": {
+      "frame": {
+        "x": 406,
+        "y": 188,
+        "w": 95,
+        "h": 100
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 95,
+        "h": 100
+      },
+      "sourceSize": {
+        "w": 95,
+        "h": 100
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_arcana": {
+      "frame": {
+        "x": 301,
+        "y": 188,
+        "w": 99,
+        "h": 104
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 99,
+        "h": 104
+      },
+      "sourceSize": {
+        "w": 99,
+        "h": 104
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_bronze_open": {
+      "frame": {
+        "x": 107,
+        "y": 188,
+        "w": 91,
+        "h": 106
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 91,
+        "h": 106
+      },
+      "sourceSize": {
+        "w": 91,
+        "h": 106
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_silver_open": {
+      "frame": {
+        "x": 204,
+        "y": 188,
+        "w": 91,
+        "h": 106
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 91,
+        "h": 106
+      },
+      "sourceSize": {
+        "w": 91,
+        "h": 106
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_gold_open": {
+      "frame": {
+        "x": 6,
+        "y": 188,
+        "w": 95,
+        "h": 110
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 95,
+        "h": 110
+      },
+      "sourceSize": {
+        "w": 95,
+        "h": 110
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "chest_arcana_open": {
+      "frame": {
+        "x": 836,
+        "y": 6,
+        "w": 98,
+        "h": 114
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 98,
+        "h": 114
+      },
+      "sourceSize": {
+        "w": 98,
+        "h": 114
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    }
+  },
+  "meta": {
+    "app": "tools/art_world.py",
+    "version": "1.0",
+    "image": "world.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 1024,
+      "h": 512
+    },
+    "scale": "1"
+  }
+}

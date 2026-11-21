@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a090d" />
+    <meta name="description" content="吸血鬼幸存者 · 灰烬之夜（Web HD Edition）——暗黑哥特自动战斗幸存者重制版。" />
+    <title>灰烬之夜 · Ashen Survivors</title>
+    <link rel="icon" type="image/png" href="/assets/icons/bloody_tear.png" />
+    <link rel="preload" href="/assets/fonts/cinzel-600.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/assets/fonts/cinzel-700.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/assets/fonts/noto-serif-sc-400.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/assets/fonts/noto-serif-sc-700.ttf" as="font" type="font/ttf" crossorigin />
+    <style>
+      @font-face {
+        font-family: 'Cinzel';
+        src: url('/assets/fonts/cinzel-400.ttf') format('truetype');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Cinzel';
+        src: url('/assets/fonts/cinzel-500.ttf') format('truetype');
+        font-weight: 500;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Cinzel';
+        src: url('/assets/fonts/cinzel-600.ttf') format('truetype');
+        font-weight: 600;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Cinzel';
+        src: url('/assets/fonts/cinzel-700.ttf') format('truetype');
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Noto Serif SC';
+        src: url('/assets/fonts/noto-serif-sc-400.ttf') format('truetype');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Noto Serif SC';
+        src: url('/assets/fonts/noto-serif-sc-500.ttf') format('truetype');
+        font-weight: 500;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Noto Serif SC';
+        src: url('/assets/fonts/noto-serif-sc-600.ttf') format('truetype');
+        font-weight: 600;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Noto Serif SC';
+        src: url('/assets/fonts/noto-serif-sc-700.ttf') format('truetype');
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+      }
+      html, body, #app {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0a090d;
+        color: #efe4cf;
+        font-family: 'Noto Serif SC', 'Cinzel', Georgia, serif;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
