@@ -317,6 +317,21 @@ export class BattleController {
       }
 
       if (phase === 'settlement') {
+        const shareBackdrop = document.querySelector<HTMLElement>('[data-testid="modal-share-card"]');
+        if (shareBackdrop) {
+          if (ev.code === 'Escape') {
+            ev.preventDefault();
+            const closeBtn = shareBackdrop.querySelector<HTMLButtonElement>(
+              '[data-testid="btn-close-share-card"]',
+            );
+            if (closeBtn) {
+              closeBtn.click();
+            } else {
+              shareBackdrop.remove();
+            }
+          }
+          return;
+        }
         if (ev.code === 'Enter' || ev.code === 'Escape') {
           ev.preventDefault();
           this.exitToMenu();
@@ -597,6 +612,13 @@ export class BattleController {
             renderSettlementModal({
               catalog: this.catalog,
               settlement: frame.settlementModal,
+              runMeta: {
+                hyper: frame.hud.hyper,
+                hurry: frame.hud.hurry,
+                endless: frame.hud.endless,
+                endlessCycle: frame.hud.endlessCycle,
+              },
+              onCue: (cue) => this.audio.playCue(cue),
               onReturnMenu: () => this.exitToMenu(),
             }),
           );

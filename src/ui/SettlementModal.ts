@@ -1,10 +1,18 @@
-import type { Catalog, SettlementModalState } from '../contracts/index.ts';
+import type { AudioCue, Catalog, SettlementModalState } from '../contracts/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatAchievementRewardTags, formatClock, formatInt, iconUrl } from '../app/formatters.ts';
+import { renderShareCardModal } from './ShareCardModal.ts';
 
 export interface SettlementModalDeps {
   catalog: Catalog;
   settlement: SettlementModalState;
+  runMeta?: {
+    hyper?: boolean;
+    hurry?: boolean;
+    endless?: boolean;
+    endlessCycle?: number;
+  };
+  onCue?: (cue: AudioCue) => void;
   onReturnMenu: () => void;
 }
 
@@ -189,11 +197,38 @@ export function renderSettlementModal(deps: SettlementModalDeps): HTMLElement {
             className: 'modal-footer',
             children: [
               el('span', { className: 'codex-desc', text: '战局收获已自动记入本地档案。' }),
-              el('button', {
-                className: 'gothic-btn gothic-btn-gold',
-                text: '返回主菜单',
-                dataset: { testid: 'btn-settlement-menu' },
-                onClick: () => deps.onReturnMenu(),
+              el('div', {
+                className: 'title-meta-pills',
+                children: [
+                  el('button', {
+                    className: 'gothic-btn gothic-btn-primary',
+                    text: '生成战报分享卡',
+                    dataset: { testid: 'btn-settlement-share' },
+                    onClick: () => {
+                      deps.onCue?.({ type: 'ui_click' });
+                      const host = document.getElementById('app') ?? document.body;
+                      let shareEl: HTMLElement | null = null;
+                      shareEl = renderShareCardModal({
+                        kind: 'settlement',
+                        catalog: deps.catalog,
+                        settlement: deps.settlement,
+                        runMeta: deps.runMeta,
+                        onCue: deps.onCue,
+                        onClose: () => {
+                          shareEl?.remove();
+                          shareEl = null;
+                        },
+                      });
+                      host.appendChild(shareEl);
+                    },
+                  }),
+                  el('button', {
+                    className: 'gothic-btn gothic-btn-gold',
+                    text: '返回主菜单',
+                    dataset: { testid: 'btn-settlement-menu' },
+                    onClick: () => deps.onReturnMenu(),
+                  }),
+                ],
               }),
             ],
           }),

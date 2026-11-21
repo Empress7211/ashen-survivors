@@ -170,7 +170,7 @@
 
 .title-nav-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   width: 100%;
 }
@@ -1017,6 +1017,52 @@
   background: rgba(168, 30, 42, 0.24);
   border: 1px solid rgba(224, 60, 73, 0.55);
   color: #ffb8be;
+}
+
+/* Social Share Card Poster Modal */
+.share-card-dialog {
+  width: min(640px, 100%);
+}
+
+.share-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.share-card-preview-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  background: rgba(8, 7, 12, 0.92);
+}
+
+.share-card-preview-img {
+  display: block;
+  max-width: 100%;
+  max-height: min(60vh, 540px);
+  width: auto;
+  height: auto;
+  aspect-ratio: 4 / 5;
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.72);
+  user-select: auto;
+  -webkit-user-select: auto;
+  -webkit-touch-callout: default;
+}
+
+.share-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
 }
 
 @media (max-width: 960px) {

@@ -11,6 +11,7 @@ import { renderCollectionModal } from '../ui/CollectionModal.ts';
 import { renderHeroSelectScreen } from '../ui/HeroSelectScreen.ts';
 import { renderPowerUpScreen } from '../ui/PowerUpScreen.ts';
 import { renderSettingsModal } from '../ui/SettingsModal.ts';
+import { renderShareCardModal } from '../ui/ShareCardModal.ts';
 import { renderStageSelectScreen } from '../ui/StageSelectScreen.ts';
 import { renderTitleScreen } from '../ui/TitleScreen.ts';
 
@@ -303,6 +304,18 @@ export class AppShell {
     );
   }
 
+  private openShareProfileOverlay(): void {
+    this.openOverlay(
+      renderShareCardModal({
+        kind: 'profile',
+        catalog: this.catalog,
+        saveState: this.saveStore.getState(),
+        onClose: () => this.closeOverlay(),
+        onCue: this.playCue,
+      }),
+    );
+  }
+
   private buildTitleScreenElement(): HTMLElement {
     return renderTitleScreen({
       saveState: this.saveStore.getState(),
@@ -311,6 +324,7 @@ export class AppShell {
       onOpenCollection: () => this.openCollectionOverlay(),
       onOpenBestiary: () => this.openBestiaryOverlay(),
       onOpenAchievements: () => this.openAchievementsOverlay(),
+      onOpenShareProfile: () => this.openShareProfileOverlay(),
       onOpenSettings: () => this.openSettingsOverlay(),
       onCue: this.playCue,
     });

@@ -9,6 +9,7 @@ export interface TitleScreenDeps {
   onOpenCollection: () => void;
   onOpenBestiary: () => void;
   onOpenAchievements: () => void;
+  onOpenShareProfile?: () => void;
   onOpenSettings: () => void;
   onCue: (cue: AudioCue) => void;
 }
@@ -114,6 +115,9 @@ export function renderTitleScreen(deps: TitleScreenDeps): HTMLElement {
                   makeNavBtn('藏品与魔典', 'btn-collection', deps.onOpenCollection),
                   makeNavBtn('怪物图鉴', 'btn-bestiary', deps.onOpenBestiary),
                   makeNavBtn('成就圣典', 'btn-achievements', deps.onOpenAchievements),
+                  deps.onOpenShareProfile
+                    ? makeNavBtn('战绩分享卡', 'btn-share-profile', deps.onOpenShareProfile)
+                    : null,
                   makeNavBtn('设置与存档', 'btn-settings', deps.onOpenSettings),
                 ],
               }),

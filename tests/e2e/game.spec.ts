@@ -183,6 +183,26 @@ test.describe('《Vampire Survivors · 灰烬之夜》 E2E & Visual QA', () => {
     expect(audit.woff2Fonts.length, 'expected .woff2 font HTTP responses').toBeGreaterThan(0);
     await shot(page, '01-title-screen.png');
 
+    // Open Hunter Profile Share Card modal, verify 1080x1350 PNG & caption copy
+    await page.getByTestId('btn-share-profile').click();
+    await expect(page.getByTestId('modal-share-card')).toBeVisible();
+    const shareImg = page.getByTestId('share-card-img');
+    await expect
+      .poll(
+        () =>
+          shareImg.evaluate((el) => {
+            const img = el as HTMLImageElement;
+            return img.complete && img.naturalWidth === 1080 && img.naturalHeight === 1350;
+          }),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+    await page.getByTestId('btn-share-copy-text').click();
+    await expect(page.getByTestId('share-status-banner')).toContainText(/已复制|survive\.ilovesjtu\.com/);
+    await shot(page, '15-share-card.png');
+    await page.getByTestId('btn-close-share-card').click();
+    await expect(page.getByTestId('modal-share-card')).toBeHidden();
+
     // Open Settings, verify minimap toggle, & test JSON Export + Import with 2,500 G
     await page.getByTestId('btn-settings').click();
     await expect(page.getByTestId('modal-settings')).toBeVisible();
