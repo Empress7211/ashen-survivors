@@ -1,12 +1,196 @@
 import type {
   AchievementDef,
+  ArcanaId,
   Catalog,
   HudSnapshot,
+  PassiveSlotSnapshot,
+  PauseMapMarker,
   RenderFrameState,
+  WeaponSlotSnapshot,
 } from '../contracts/index.ts';
 import { MAX_PASSIVE_SLOTS, MAX_WEAPON_SLOTS } from '../core/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatClock, formatInt, iconUrl } from '../app/formatters.ts';
+
+const MINIMAP_W = 118;
+const MINIMAP_H = 84;
+const MINIMAP_DPR = 2;
+const MINIMAP_RANGE_WORLD = 1350;
+const MINIMAP_TICK_INTERVAL = 6;
+
+type HudSnapshotWithRadar = HudSnapshot & {
+  hasMilkyWayMap?: boolean;
+  mapMarkers?: readonly PauseMapMarker[];
+};
+
+export interface SlotTooltipData {
+  name: string;
+  badgeText: string;
+  badgeVariant?: 'gold' | 'crimson' | 'arcana' | 'emerald';
+  description: string;
+  detailLine?: string;
+  synergyLine?: string;
+  synergyReady?: boolean;
+}
+
+export function buildWeaponTooltipData(
+  slot: WeaponSlotSnapshot,
+  hud: Pick<HudSnapshot, 'weapons' | 'passives'>,
+  catalog: Catalog,
+): SlotTooltipData {
+  const def = catalog.weapons[slot.weaponId];
+  const heldWeaponIds = new Set(hud.weapons.map((w) => w.weaponId));
+  const heldPassiveIds = new Set(hud.passives.map((p) => p.passiveId));
+
+  const badgeText = slot.isEvolved
+    ? slot.limitBreakLevel > 0
+      ? `超武 · 突破 +${slot.limitBreakLevel}`
+      : '超武觉醒'
+    : slot.limitBreakLevel > 0
+      ? `Lv.${slot.level}/${slot.maxLevel} · 突破 +${slot.limitBreakLevel}`
+      : `Lv.${slot.level}/${slot.maxLevel}`;
+
+  const levelNote = def.levels[Math.max(0, slot.level - 1)]?.description;
+  const detailLine =
+    slot.limitBreakLevel > 0
+      ? `极限突破 +${slot.limitBreakLevel}（持续强化伤害、范围、冷却与投射量）`
+      : levelNote
+        ? `当前等级：${levelNote}`
+        : undefined;
+
+  let synergyLine: string | undefined;
+  let synergyReady = false;
+
+  if (def.isEvolved && def.evolutionRecipe) {
+    const baseName = catalog.weapons[def.evolutionRecipe.baseWeapon].name;
+    const partnerName = def.evolutionRecipe.partnerWeapon
+      ? catalog.weapons[def.evolutionRecipe.partnerWeapon].name
+      : def.evolutionRecipe.requiredPassive
+        ? catalog.passives[def.evolutionRecipe.requiredPassive].name
+        : '';
+    synergyLine = partnerName
+      ? `超武进化由来：${baseName} + ${partnerName}`
+      : `超武进化由来：${baseName}`;
+    synergyReady = true;
+  } else {
+    const recipe = catalog.evolutions.find(
+      (r) => r.baseWeapon === slot.weaponId || r.partnerWeapon === slot.weaponId,
+    );
+    if (recipe) {
+      const evolvedName = catalog.weapons[recipe.evolvedId].name;
+      if (recipe.partnerWeapon) {
+        const otherWeaponId =
+          recipe.baseWeapon === slot.weaponId ? recipe.partnerWeapon : recipe.baseWeapon;
+        const partnerOwned = heldWeaponIds.has(otherWeaponId);
+        synergyReady = partnerOwned;
+        synergyLine = `联合进化：搭配「${catalog.weapons[otherWeaponId].name}」${partnerOwned ? '（已持有）' : '（未持有）'} → ${evolvedName}`;
+      } else if (recipe.requiredPassive) {
+        const partnerOwned = heldPassiveIds.has(recipe.requiredPassive);
+        synergyReady = partnerOwned;
+        synergyLine = `进化配方：搭配「${catalog.passives[recipe.requiredPassive].name}」${partnerOwned ? '（已持有）' : '（未持有）'} → ${evolvedName}`;
+      }
+    }
+  }
+
+  return {
+    name: def.name,
+    badgeText,
+    badgeVariant: slot.isEvolved ? 'crimson' : 'gold',
+    description: def.description,
+    detailLine,
+    synergyLine,
+    synergyReady,
+  };
+}
+
+export function buildPassiveTooltipData(
+  slot: PassiveSlotSnapshot,
+  hud: Pick<HudSnapshot, 'weapons'>,
+  catalog: Catalog,
+): SlotTooltipData {
+  const def = catalog.passives[slot.passiveId];
+  const heldWeaponIds = new Set(hud.weapons.map((w) => w.weaponId));
+  const rankNote = def.levelDescriptions[Math.max(0, slot.level - 1)];
+
+  const recipes = catalog.evolutions.filter((r) => r.requiredPassive === slot.passiveId);
+  let synergyLine: string | undefined;
+  let synergyReady = false;
+  if (recipes.length > 0) {
+    const ownedMatch = recipes.find((r) => heldWeaponIds.has(r.baseWeapon));
+    synergyReady = Boolean(ownedMatch);
+    const parts = recipes.map((r) => {
+      const baseName = catalog.weapons[r.baseWeapon].name;
+      const evoName = catalog.weapons[r.evolvedId].name;
+      return `${baseName}→${evoName}`;
+    });
+    synergyLine = `进化共鸣：${parts.join(' / ')}${synergyReady ? '（基础武器已持有）' : ''}`;
+  }
+
+  return {
+    name: def.name,
+    badgeText: `Lv.${slot.level}/${slot.maxLevel}`,
+    badgeVariant: 'emerald',
+    description: def.description,
+    detailLine: rankNote ? `当前效果：${rankNote}` : undefined,
+    synergyLine,
+    synergyReady,
+  };
+}
+
+export function buildArcanaTooltipData(
+  arcanaId: ArcanaId,
+  catalog: Catalog,
+): SlotTooltipData {
+  const def = catalog.arcanas[arcanaId];
+  const synergyItems = [
+    ...def.affectedWeapons.map((id) => catalog.weapons[id].name),
+    ...def.affectedPassives.map((id) => catalog.passives[id].name),
+  ];
+
+  return {
+    name: `${def.roman} · ${def.name}`,
+    badgeText: '秘法塔罗',
+    badgeVariant: 'arcana',
+    description: def.description,
+    synergyLine:
+      synergyItems.length > 0 ? `强化共鸣：${synergyItems.join('、')}` : undefined,
+    synergyReady: synergyItems.length > 0,
+  };
+}
+
+export function formatTooltipPlainText(data: SlotTooltipData): string {
+  const lines = [`${data.name} (${data.badgeText})`, data.description];
+  if (data.detailLine) lines.push(data.detailLine);
+  if (data.synergyLine) lines.push(data.synergyLine);
+  return lines.join('\n');
+}
+
+export function createSlotTooltipElement(data: SlotTooltipData): HTMLElement {
+  const badgeClass = data.badgeVariant ? `tag-badge-${data.badgeVariant}` : 'tag-badge-gold';
+  return el('div', {
+    className: 'hud-slot-tooltip',
+    attrs: { role: 'tooltip' },
+    children: [
+      el('div', {
+        className: 'hud-slot-tooltip-head',
+        children: [
+          el('strong', { className: 'hud-slot-tooltip-title', text: data.name }),
+          el('span', { className: `tag-badge ${badgeClass}`, text: data.badgeText }),
+        ],
+      }),
+      el('p', { className: 'hud-slot-tooltip-desc', text: data.description }),
+      data.detailLine
+        ? el('p', { className: 'hud-slot-tooltip-detail', text: data.detailLine })
+        : null,
+      data.synergyLine
+        ? el('p', {
+            className: `hud-slot-tooltip-synergy ${data.synergyReady ? 'ready' : ''}`,
+            text: data.synergyLine,
+          })
+        : null,
+    ],
+  });
+}
 
 export interface BattleHudDeps {
   catalog: Catalog;
@@ -39,6 +223,9 @@ export class BattleHudView {
   private readonly fpsEl: HTMLElement;
   private readonly muteBtn: HTMLButtonElement;
   private readonly toastStack: HTMLElement;
+  private readonly minimapWrap: HTMLElement;
+  private readonly minimapCanvas: HTMLCanvasElement;
+  private readonly minimapBadge: HTMLElement;
 
   private lastWeaponsKey = '';
   private lastPassivesKey = '';
@@ -58,6 +245,9 @@ export class BattleHudView {
   private lastHpText = '';
   private lastMuted: boolean | null = null;
   private lastFpsText = '';
+  private lastMinimapTick = -1;
+  private lastShowMinimap: boolean | null = null;
+  private lastHasMapBadge: boolean | null = null;
 
   constructor(deps: BattleHudDeps) {
     this.catalog = deps.catalog;
@@ -139,6 +329,24 @@ export class BattleHudView {
       text: '60 FPS',
     });
 
+    this.minimapCanvas = el('canvas', {
+      className: 'hud-minimap-canvas',
+      attrs: {
+        width: MINIMAP_W * MINIMAP_DPR,
+        height: MINIMAP_H * MINIMAP_DPR,
+        'aria-label': '战场实时小雷达',
+      },
+    }) as HTMLCanvasElement;
+    this.minimapBadge = el('span', {
+      className: 'hud-minimap-badge',
+      text: '雷达',
+    });
+    this.minimapWrap = el('div', {
+      className: 'hud-minimap-wrap',
+      dataset: { testid: 'hud-minimap' },
+      children: [this.minimapCanvas, this.minimapBadge],
+    });
+
     this.toastStack = el('div', { className: 'achievement-toast-stack' });
 
     this.element = el('div', {
@@ -200,6 +408,7 @@ export class BattleHudView {
                     this.hpTextEl,
                   ],
                 }),
+                this.minimapWrap,
               ],
             }),
           ],
@@ -218,8 +427,14 @@ export class BattleHudView {
     }
   }
 
-  update(frame: RenderFrameState, muted: boolean): void {
+  update(
+    frame: RenderFrameState,
+    muted: boolean,
+    options?: boolean | { showMinimap?: boolean },
+  ): void {
     const { hud, bossBar } = frame;
+    const showMinimap =
+      typeof options === 'boolean' ? options : options?.showMinimap ?? true;
 
     const xpRatio = hud.xpToNextLevel > 0 ? Math.max(0, Math.min(1, hud.xp / hud.xpToNextLevel)) : 0;
     const xpKey = xpRatio.toFixed(3);
@@ -306,6 +521,132 @@ export class BattleHudView {
       this.lastBossVisible = false;
       this.bossBar.style.display = 'none';
     }
+
+    const minimapVisChanged = showMinimap !== this.lastShowMinimap;
+    if (minimapVisChanged) {
+      this.lastShowMinimap = showMinimap;
+      this.minimapWrap.style.display = showMinimap ? 'block' : 'none';
+    }
+    if (showMinimap) {
+      const tick = frame.tick;
+      if (
+        minimapVisChanged ||
+        this.lastMinimapTick < 0 ||
+        tick < this.lastMinimapTick ||
+        tick - this.lastMinimapTick >= MINIMAP_TICK_INTERVAL
+      ) {
+        this.lastMinimapTick = tick;
+        this.renderMinimap(frame);
+      }
+    }
+  }
+
+  private renderMinimap(frame: RenderFrameState): void {
+    const hudExt = frame.hud as HudSnapshotWithRadar;
+    const hasMap = Boolean(hudExt.hasMilkyWayMap);
+    if (hasMap !== this.lastHasMapBadge) {
+      this.lastHasMapBadge = hasMap;
+      this.minimapWrap.classList.toggle('has-map', hasMap);
+      this.minimapBadge.textContent = hasMap ? '银河地图' : '雷达';
+    }
+
+    let ctx: CanvasRenderingContext2D | null = null;
+    try {
+      ctx = this.minimapCanvas.getContext('2d');
+    } catch {
+      return;
+    }
+    if (!ctx) return;
+
+    ctx.setTransform(MINIMAP_DPR, 0, 0, MINIMAP_DPR, 0, 0);
+    ctx.clearRect(0, 0, MINIMAP_W, MINIMAP_H);
+
+    // Dark obsidian backdrop
+    ctx.fillStyle = '#09070e';
+    ctx.fillRect(0, 0, MINIMAP_W, MINIMAP_H);
+
+    const cx = MINIMAP_W / 2;
+    const cy = MINIMAP_H / 2;
+    const px = frame.player.x;
+    const py = frame.player.y;
+    const scale = (cx - 6) / MINIMAP_RANGE_WORLD;
+
+    // Subtle gothic radar grid
+    ctx.strokeStyle = 'rgba(212, 175, 55, 0.12)';
+    ctx.lineWidth = 0.75;
+    ctx.beginPath();
+    ctx.moveTo(cx, 0);
+    ctx.lineTo(cx, MINIMAP_H);
+    ctx.moveTo(0, cy);
+    ctx.lineTo(MINIMAP_W, cy);
+    ctx.stroke();
+
+    // Corridor walls
+    if (frame.corridorBounds) {
+      const b = frame.corridorBounds;
+      const x1 = b.minX !== undefined ? cx + (b.minX - px) * scale : -8;
+      const x2 = b.maxX !== undefined ? cx + (b.maxX - px) * scale : MINIMAP_W + 8;
+      const y1 = b.minY !== undefined ? cy + (b.minY - py) * scale : -8;
+      const y2 = b.maxY !== undefined ? cy + (b.maxY - py) * scale : MINIMAP_H + 8;
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.6)';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(x1, y1, Math.max(4, x2 - x1), Math.max(4, y2 - y1));
+      ctx.setLineDash([]);
+    }
+
+    const drawDot = (wx: number, wy: number, color: string, radius: number): void => {
+      const sx = Math.max(4, Math.min(MINIMAP_W - 4, cx + (wx - px) * scale));
+      const sy = Math.max(4, Math.min(MINIMAP_H - 4, cy + (wy - py) * scale));
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.lineWidth = 0.9;
+      ctx.strokeStyle = '#09070e';
+      ctx.stroke();
+    };
+
+    // Relics, ground passives, and chests (via hud.mapMarkers when provided, or frame.pickups when hasMilkyWayMap is active)
+    if (hudExt.mapMarkers && hudExt.mapMarkers.length > 0) {
+      for (let i = 0; i < hudExt.mapMarkers.length; i++) {
+        const m = hudExt.mapMarkers[i]!;
+        if (m.kind === 'player') continue;
+        const color =
+          m.kind === 'relic' ? '#b48cff' : m.kind === 'passive' ? '#60e3aa' : '#f4d87d';
+        drawDot(m.x, m.y, color, m.kind === 'relic' ? 2.6 : 2.2);
+      }
+    } else if (hasMap) {
+      for (let i = 0; i < frame.pickups.length; i++) {
+        const p = frame.pickups[i]!;
+        if (p.kind === 'relic') {
+          drawDot(p.x, p.y, '#b48cff', 2.6);
+        } else if (p.kind === 'passive') {
+          drawDot(p.x, p.y, '#60e3aa', 2.2);
+        } else if (p.kind === 'pickup' && p.itemId.startsWith('chest_')) {
+          drawDot(p.x, p.y, '#f4d87d', 2.2);
+        }
+      }
+    }
+
+    // Live bosses / reapers
+    for (let i = 0; i < frame.enemies.length; i++) {
+      const e = frame.enemies[i]!;
+      if (!e.isBoss && !e.isReaper) continue;
+      drawDot(e.x, e.y, '#ff4d5a', e.isReaper ? 3.1 : 2.6);
+    }
+
+    // Player center dot & reticle
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4.6, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.3, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
   }
 
   pushAchievementToast(ach: AchievementDef): void {
@@ -348,9 +689,11 @@ export class BattleHudView {
   }
 
   private syncWeaponSlots(hud: HudSnapshot): void {
-    const key = hud.weapons
+    const weaponPart = hud.weapons
       .map((w) => `${w.weaponId}:${w.level}:${w.limitBreakLevel}:${w.isEvolved ? 1 : 0}`)
       .join('|');
+    const passivePart = hud.passives.map((p) => p.passiveId).join(',');
+    const key = `${weaponPart}::${passivePart}`;
     if (key === this.lastWeaponsKey) return;
     this.lastWeaponsKey = key;
     this.weaponStrip.replaceChildren();
@@ -363,6 +706,7 @@ export class BattleHudView {
         continue;
       }
       const def = this.catalog.weapons[slot.weaponId];
+      const tooltipData = buildWeaponTooltipData(slot, hud, this.catalog);
       const pips = el('div', { className: 'hud-slot-pips' });
       for (let lv = 0; lv < slot.maxLevel; lv++) {
         pips.appendChild(el('span', { className: `hud-slot-pip ${lv < slot.level ? 'on' : ''}` }));
@@ -370,13 +714,18 @@ export class BattleHudView {
       this.weaponStrip.appendChild(
         el('div', {
           className: `hud-slot filled ${slot.isEvolved ? 'evolved' : ''}`,
-          attrs: { title: `${def.name} Lv.${slot.level}` },
+          attrs: {
+            tabindex: 0,
+            title: formatTooltipPlainText(tooltipData),
+            'aria-label': `${def.name} ${tooltipData.badgeText}`,
+          },
           children: [
             imgIcon(iconUrl(slot.weaponId), def.name),
             pips,
             slot.limitBreakLevel > 0
               ? el('span', { className: 'hud-slot-lb', text: `+${slot.limitBreakLevel}` })
               : null,
+            createSlotTooltipElement(tooltipData),
           ],
         }),
       );
@@ -384,7 +733,9 @@ export class BattleHudView {
   }
 
   private syncPassiveSlots(hud: HudSnapshot): void {
-    const key = hud.passives.map((p) => `${p.passiveId}:${p.level}`).join('|');
+    const passivePart = hud.passives.map((p) => `${p.passiveId}:${p.level}`).join('|');
+    const weaponPart = hud.weapons.map((w) => w.weaponId).join(',');
+    const key = `${passivePart}::${weaponPart}`;
     if (key === this.lastPassivesKey) return;
     this.lastPassivesKey = key;
     this.passiveStrip.replaceChildren();
@@ -397,6 +748,7 @@ export class BattleHudView {
         continue;
       }
       const def = this.catalog.passives[slot.passiveId];
+      const tooltipData = buildPassiveTooltipData(slot, hud, this.catalog);
       const pips = el('div', { className: 'hud-slot-pips' });
       for (let lv = 0; lv < slot.maxLevel; lv++) {
         pips.appendChild(el('span', { className: `hud-slot-pip ${lv < slot.level ? 'on' : ''}` }));
@@ -404,8 +756,16 @@ export class BattleHudView {
       this.passiveStrip.appendChild(
         el('div', {
           className: 'hud-slot filled',
-          attrs: { title: `${def.name} Lv.${slot.level}` },
-          children: [imgIcon(iconUrl(slot.passiveId), def.name), pips],
+          attrs: {
+            tabindex: 0,
+            title: formatTooltipPlainText(tooltipData),
+            'aria-label': `${def.name} ${tooltipData.badgeText}`,
+          },
+          children: [
+            imgIcon(iconUrl(slot.passiveId), def.name),
+            pips,
+            createSlotTooltipElement(tooltipData),
+          ],
         }),
       );
     }
@@ -423,11 +783,19 @@ export class BattleHudView {
     this.arcanaStrip.style.display = 'flex';
     for (const aId of hud.arcanas) {
       const def = this.catalog.arcanas[aId];
+      const tooltipData = buildArcanaTooltipData(aId, this.catalog);
       this.arcanaStrip.appendChild(
         el('div', {
           className: 'hud-slot filled',
-          attrs: { title: `${def.roman} · ${def.name}` },
-          children: [imgIcon(iconUrl(aId), def.name)],
+          attrs: {
+            tabindex: 0,
+            title: formatTooltipPlainText(tooltipData),
+            'aria-label': `${def.roman} ${def.name}`,
+          },
+          children: [
+            imgIcon(iconUrl(aId), def.name),
+            createSlotTooltipElement(tooltipData),
+          ],
         }),
       );
     }

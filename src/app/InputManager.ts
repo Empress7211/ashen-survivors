@@ -14,6 +14,347 @@ export interface JoystickState {
 }
 
 const JOYSTICK_MAX_RADIUS = 46;
+const GAMEPAD_STICK_UI_THRESHOLD = 0.55;
+const GAMEPAD_UI_REPEAT_MS = 180;
+
+export type GamepadNavDirection = 'up' | 'down' | 'left' | 'right';
+
+export interface GamepadUiPollResult {
+  direction: GamepadNavDirection | null;
+  confirmPressed: boolean;
+  cancelPressed: boolean;
+  xPressed: boolean;
+  yPressed: boolean;
+  startPressed: boolean;
+}
+
+function readStandardGamepadSnapshot(): {
+  dir: GamepadNavDirection | null;
+  a: boolean;
+  b: boolean;
+  x: boolean;
+  y: boolean;
+  start: boolean;
+} {
+  if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') {
+    return { dir: null, a: false, b: false, x: false, y: false, start: false };
+  }
+
+  let dir: GamepadNavDirection | null = null;
+  let a = false;
+  let b = false;
+  let x = false;
+  let y = false;
+  let start = false;
+
+  const pads = navigator.getGamepads();
+  for (const pad of pads) {
+    if (!pad || pad.connected === false) continue;
+
+    if (pad.buttons[0]?.pressed) a = true;
+    if (pad.buttons[1]?.pressed) b = true;
+    if (pad.buttons[2]?.pressed) x = true;
+    if (pad.buttons[3]?.pressed) y = true;
+    if (pad.buttons[9]?.pressed) start = true;
+
+    if (!dir) {
+      if (pad.buttons[12]?.pressed) dir = 'up';
+      else if (pad.buttons[13]?.pressed) dir = 'down';
+      else if (pad.buttons[14]?.pressed) dir = 'left';
+      else if (pad.buttons[15]?.pressed) dir = 'right';
+      else {
+        const ax = pad.axes[0] ?? 0;
+        const ay = pad.axes[1] ?? 0;
+        if (Math.abs(ax) > GAMEPAD_STICK_UI_THRESHOLD || Math.abs(ay) > GAMEPAD_STICK_UI_THRESHOLD) {
+          if (Math.abs(ax) >= Math.abs(ay)) {
+            dir = ax < 0 ? 'left' : 'right';
+          } else {
+            dir = ay < 0 ? 'up' : 'down';
+          }
+        }
+      }
+    }
+  }
+
+  return { dir, a, b, x, y, start };
+}
+
+function isInteractiveVisibleElement(el: HTMLElement): boolean {
+  if ((el as HTMLButtonElement | HTMLInputElement).disabled) return false;
+  if (el.getAttribute('aria-disabled') === 'true') return false;
+  if (el.closest('[hidden]')) return false;
+
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+export function resolveGamepadNavScope(container: HTMLElement | null): HTMLElement | null {
+  if (!container) return null;
+  if (container.matches('.modal-backdrop')) {
+    return container.querySelector<HTMLElement>('.modal-dialog') ?? container;
+  }
+  const backdrops = container.querySelectorAll<HTMLElement>('.modal-backdrop');
+  if (backdrops.length > 0) {
+    const topBackdrop = backdrops[backdrops.length - 1]!;
+    return topBackdrop.querySelector<HTMLElement>('.modal-dialog') ?? topBackdrop;
+  }
+  return container;
+}
+
+export function getNavigableControls(scope: HTMLElement): HTMLElement[] {
+  const nodes = scope.querySelectorAll<HTMLElement>(
+    'button, input, select, textarea, [tabindex]',
+  );
+  const out: HTMLElement[] = [];
+  for (const node of nodes) {
+    if (node.tagName !== 'BUTTON' && node.tagName !== 'INPUT' && node.tagName !== 'SELECT' && node.tagName !== 'TEXTAREA') {
+      if (node.tabIndex < 0) continue;
+    }
+    if (isInteractiveVisibleElement(node)) {
+      out.push(node);
+    }
+  }
+  return out;
+}
+
+/**
+ * Discrete 60Hz gamepad UI navigation & 2D spatial focus ring controller.
+ */
+export class GamepadMenuNavigator {
+  private prevA = false;
+  private prevB = false;
+  private prevX = false;
+  private prevY = false;
+  private prevStart = false;
+  private heldDir: GamepadNavDirection | null = null;
+  private lastDirFiredAt = 0;
+
+  private active = false;
+  private focusedEl: HTMLElement | null = null;
+  private lastFocusedTestId: string | null = null;
+
+  isActive(): boolean {
+    return this.active;
+  }
+
+  getFocusedElement(): HTMLElement | null {
+    return this.focusedEl;
+  }
+
+  /**
+   * Captures current hardware button state without emitting rising edges,
+   * preventing button bounce when transitioning between gameplay and modals.
+   */
+  syncFromHardware(): void {
+    const snap = readStandardGamepadSnapshot();
+    this.prevA = snap.a;
+    this.prevB = snap.b;
+    this.prevX = snap.x;
+    this.prevY = snap.y;
+    this.prevStart = snap.start;
+    this.heldDir = snap.dir;
+    this.lastDirFiredAt = performance.now();
+  }
+
+  poll(now: number = performance.now()): GamepadUiPollResult {
+    const snap = readStandardGamepadSnapshot();
+
+    const confirmPressed = snap.a && !this.prevA;
+    const cancelPressed = snap.b && !this.prevB;
+    const xPressed = snap.x && !this.prevX;
+    const yPressed = snap.y && !this.prevY;
+    const startPressed = snap.start && !this.prevStart;
+
+    this.prevA = snap.a;
+    this.prevB = snap.b;
+    this.prevX = snap.x;
+    this.prevY = snap.y;
+    this.prevStart = snap.start;
+
+    let direction: GamepadNavDirection | null = null;
+    if (snap.dir === null) {
+      this.heldDir = null;
+    } else if (snap.dir !== this.heldDir) {
+      this.heldDir = snap.dir;
+      this.lastDirFiredAt = now;
+      direction = snap.dir;
+    } else if (now - this.lastDirFiredAt >= GAMEPAD_UI_REPEAT_MS) {
+      this.lastDirFiredAt = now;
+      direction = snap.dir;
+    }
+
+    if (direction || confirmPressed || cancelPressed || xPressed || yPressed || startPressed) {
+      this.active = true;
+    }
+
+    return {
+      direction,
+      confirmPressed,
+      cancelPressed,
+      xPressed,
+      yPressed,
+      startPressed,
+    };
+  }
+
+  clearFocus(deactivate = false): void {
+    if (this.focusedEl) {
+      this.focusedEl.classList.remove('gamepad-focus');
+      this.focusedEl = null;
+    }
+    const stale = document.querySelectorAll('.gamepad-focus');
+    for (const el of stale) {
+      el.classList.remove('gamepad-focus');
+    }
+    if (deactivate) {
+      this.active = false;
+      this.lastFocusedTestId = null;
+    }
+  }
+
+  syncFocus(container: HTMLElement | null): HTMLElement | null {
+    const scope = resolveGamepadNavScope(container);
+    if (!scope || !this.active) {
+      return null;
+    }
+
+    if (
+      this.focusedEl &&
+      this.focusedEl.isConnected &&
+      scope.contains(this.focusedEl) &&
+      isInteractiveVisibleElement(this.focusedEl)
+    ) {
+      this.focusedEl.classList.add('gamepad-focus');
+      return this.focusedEl;
+    }
+
+    const candidates = getNavigableControls(scope);
+    if (candidates.length === 0) {
+      this.clearFocus(false);
+      return null;
+    }
+
+    let next: HTMLElement | undefined;
+    if (this.lastFocusedTestId) {
+      next = candidates.find((c) => c.dataset.testid === this.lastFocusedTestId);
+    }
+    if (!next) {
+      next =
+        candidates.find((c) => c.classList.contains('selected')) ??
+        candidates.find((c) => c.classList.contains('gothic-btn-primary')) ??
+        candidates.find((c) => c.classList.contains('gothic-btn-gold')) ??
+        candidates[0];
+    }
+
+    if (next) {
+      this.setFocusedElement(next);
+    }
+    return this.focusedEl;
+  }
+
+  moveFocus(container: HTMLElement | null, dir: GamepadNavDirection): HTMLElement | null {
+    this.active = true;
+    const scope = resolveGamepadNavScope(container);
+    if (!scope) return null;
+
+    const candidates = getNavigableControls(scope);
+    if (candidates.length === 0) {
+      this.clearFocus(false);
+      return null;
+    }
+
+    if (
+      !this.focusedEl ||
+      !this.focusedEl.isConnected ||
+      !scope.contains(this.focusedEl) ||
+      !isInteractiveVisibleElement(this.focusedEl)
+    ) {
+      return this.syncFocus(container);
+    }
+
+    const r0 = this.focusedEl.getBoundingClientRect();
+    const cx0 = r0.left + r0.width / 2;
+    const cy0 = r0.top + r0.height / 2;
+
+    let best: HTMLElement | null = null;
+    let bestScore = Infinity;
+
+    for (const cand of candidates) {
+      if (cand === this.focusedEl) continue;
+      const r = cand.getBoundingClientRect();
+      const dx = r.left + r.width / 2 - cx0;
+      const dy = r.top + r.height / 2 - cy0;
+
+      const inHalfPlane =
+        (dir === 'up' && dy < -4) ||
+        (dir === 'down' && dy > 4) ||
+        (dir === 'left' && dx < -4) ||
+        (dir === 'right' && dx > 4);
+      if (!inHalfPlane) continue;
+
+      const score =
+        dir === 'up' || dir === 'down'
+          ? Math.abs(dy) + Math.abs(dx) * 2.2
+          : Math.abs(dx) + Math.abs(dy) * 2.2;
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = cand;
+      }
+    }
+
+    if (!best) {
+      const idx = candidates.indexOf(this.focusedEl);
+      const step = dir === 'right' || dir === 'down' ? 1 : -1;
+      const baseIdx = idx >= 0 ? idx : 0;
+      best = candidates[(baseIdx + step + candidates.length) % candidates.length]!;
+    }
+
+    this.setFocusedElement(best);
+    return best;
+  }
+
+  activateFocused(container: HTMLElement | null): boolean {
+    this.active = true;
+    const scope = resolveGamepadNavScope(container);
+    if (!scope) return false;
+
+    const target =
+      this.focusedEl &&
+      this.focusedEl.isConnected &&
+      scope.contains(this.focusedEl) &&
+      isInteractiveVisibleElement(this.focusedEl)
+        ? this.focusedEl
+        : this.syncFocus(container);
+
+    if (!target || !isInteractiveVisibleElement(target)) {
+      return false;
+    }
+
+    target.click();
+    return true;
+  }
+
+  private setFocusedElement(el: HTMLElement): void {
+    if (this.focusedEl && this.focusedEl !== el) {
+      this.focusedEl.classList.remove('gamepad-focus');
+    }
+    const stray = document.querySelectorAll('.gamepad-focus');
+    for (const node of stray) {
+      if (node !== el) node.classList.remove('gamepad-focus');
+    }
+    this.focusedEl = el;
+    this.lastFocusedTestId = el.dataset.testid ?? null;
+    el.classList.add('gamepad-focus');
+    el.focus({ preventScroll: true });
+    if (typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+}
 
 /**
  * Unified input aggregator for Keyboard (WASD + Arrows), Gamepad, and Pointer/Touch Virtual Joystick.
@@ -131,6 +472,10 @@ export class InputManager {
     this.keysDown.clear();
   }
 
+  syncGamepadPauseButton(): void {
+    this.prevGamepadPause = readStandardGamepadSnapshot().start;
+  }
+
   pollMovement(): MovementVector {
     let x = 0;
     let y = 0;
@@ -149,7 +494,7 @@ export class InputManager {
     if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
       const pads = navigator.getGamepads();
       for (const pad of pads) {
-        if (!pad) continue;
+        if (!pad || pad.connected === false) continue;
         const pausePressed = Boolean(pad.buttons[9]?.pressed);
         if (pausePressed && !this.prevGamepadPause) {
           this.onGamepadPause?.();

@@ -1,11 +1,21 @@
 import type {
   AudioAndDisplaySettings,
   Catalog,
+  PassiveId,
   PauseSnapshot,
   RenderFrameState,
+  WeaponId,
 } from '../contracts/index.ts';
 import { el, imgIcon } from '../app/dom.ts';
 import { formatStatDisplayList, iconUrl } from '../app/formatters.ts';
+import {
+  buildArcanaTooltipData,
+  buildPassiveTooltipData,
+  buildWeaponTooltipData,
+  createSlotTooltipElement,
+  formatTooltipPlainText,
+  type SlotTooltipData,
+} from './BattleHud.ts';
 
 export interface PauseModalDeps {
   catalog: Catalog;
@@ -140,8 +150,43 @@ function buildMinimapSvg(frame: RenderFrameState, pause: PauseSnapshot): SVGSVGE
 
 export function renderPauseModal(deps: PauseModalDeps): PauseModalHandle {
   const { catalog, frame, pause, settings } = deps;
+  const heldWeaponMap = new Map(pause.weapons.map((w) => [w.weaponId, w]));
+  const heldPassiveMap = new Map(pause.passives.map((p) => [p.passiveId, p]));
   const heldWeaponIds = new Set(pause.weapons.map((w) => w.weaponId));
   const heldPassiveIds = new Set(pause.passives.map((p) => p.passiveId));
+
+  const buildPreviewWeaponTooltip = (weaponId: WeaponId): SlotTooltipData => {
+    const held = heldWeaponMap.get(weaponId);
+    if (held) {
+      return buildWeaponTooltipData(held, pause, catalog);
+    }
+    const def = catalog.weapons[weaponId];
+    return buildWeaponTooltipData(
+      {
+        weaponId,
+        level: 0,
+        maxLevel: def.maxLevel,
+        isEvolved: def.isEvolved,
+        limitBreakLevel: 0,
+      },
+      pause,
+      catalog,
+    );
+  };
+
+  const buildPreviewPassiveTooltip = (passiveId: PassiveId): SlotTooltipData => {
+    const held = heldPassiveMap.get(passiveId);
+    if (held) {
+      return buildPassiveTooltipData(held, pause, catalog);
+    }
+    const def = catalog.passives[passiveId];
+    return {
+      name: def.name,
+      badgeText: `未持有 (上限 Lv.${def.maxLevel})`,
+      badgeVariant: 'emerald',
+      description: def.description,
+    };
+  };
 
   const grimoireSection = el('section', {
     className: 'pause-section',
@@ -179,30 +224,51 @@ export function renderPauseModal(deps: PauseModalDeps): PauseModalHandle {
                 : heldPassiveIds.has(hint.requiredPassive!);
               const hasEvolved = heldWeaponIds.has(hint.evolvedId);
 
+              const baseTooltip = buildPreviewWeaponTooltip(hint.baseWeapon);
+              const partnerTooltip = hint.partnerWeapon
+                ? buildPreviewWeaponTooltip(hint.partnerWeapon)
+                : buildPreviewPassiveTooltip(hint.requiredPassive!);
+              const evolvedTooltip = buildPreviewWeaponTooltip(hint.evolvedId);
+
               return el('div', {
                 className: `grimoire-row ${hint.ready ? 'ready' : ''}`,
                 children: [
                   el('div', {
                     className: `grimoire-slot ${hasBase ? 'owned' : ''}`,
+                    attrs: {
+                      tabindex: 0,
+                      title: formatTooltipPlainText(baseTooltip),
+                    },
                     children: [
                       imgIcon(iconUrl(hint.baseWeapon), baseDef.name),
                       el('span', { text: baseDef.name }),
+                      createSlotTooltipElement(baseTooltip),
                     ],
                   }),
                   el('span', { className: 'grimoire-op', text: '+' }),
                   el('div', {
                     className: `grimoire-slot ${hasPartner ? 'owned' : ''}`,
+                    attrs: {
+                      tabindex: 0,
+                      title: formatTooltipPlainText(partnerTooltip),
+                    },
                     children: [
                       imgIcon(iconUrl(partnerId), partnerDef.name),
                       el('span', { text: partnerDef.name }),
+                      createSlotTooltipElement(partnerTooltip),
                     ],
                   }),
                   el('span', { className: 'grimoire-op', text: '=' }),
                   el('div', {
                     className: `grimoire-slot ${hasEvolved ? 'owned' : ''}`,
+                    attrs: {
+                      tabindex: 0,
+                      title: formatTooltipPlainText(evolvedTooltip),
+                    },
                     children: [
                       imgIcon(iconUrl(hint.evolvedId), evolvedDef.name),
                       el('span', { text: hint.ready ? `${evolvedDef.name} (可进化!)` : evolvedDef.name }),
+                      createSlotTooltipElement(evolvedTooltip),
                     ],
                   }),
                 ],
@@ -264,10 +330,82 @@ export function renderPauseModal(deps: PauseModalDeps): PauseModalHandle {
     deps.onUpdateSettings({ sfxVolume: Number(sfxInput.value) / 100 });
   });
 
+  let showMinimap = settings.showMinimap;
+  const minimapToggleBtn = el('button', {
+    className: `gothic-btn ${showMinimap ? 'gothic-btn-gold' : ''}`,
+    text: showMinimap ? '开启' : '关闭',
+    dataset: { testid: 'btn-pause-minimap' },
+    onClick: () => {
+      showMinimap = !showMinimap;
+      minimapToggleBtn.textContent = showMinimap ? '开启' : '关闭';
+      minimapToggleBtn.classList.toggle('gothic-btn-gold', showMinimap);
+      deps.onUpdateSettings({ showMinimap });
+    },
+  });
+
+  const loadoutStrip = el('div', {
+    className: 'hud-slot-strip pause-loadout-strip',
+    dataset: { testid: 'pause-loadout-strip' },
+    children: [
+      ...pause.weapons.map((slot) => {
+        const def = catalog.weapons[slot.weaponId];
+        const tip = buildWeaponTooltipData(slot, pause, catalog);
+        return el('div', {
+          className: `hud-slot filled ${slot.isEvolved ? 'evolved' : ''}`,
+          attrs: {
+            tabindex: 0,
+            title: formatTooltipPlainText(tip),
+            'aria-label': `${def.name} ${tip.badgeText}`,
+          },
+          children: [
+            imgIcon(iconUrl(slot.weaponId), def.name),
+            slot.limitBreakLevel > 0
+              ? el('span', { className: 'hud-slot-lb', text: `+${slot.limitBreakLevel}` })
+              : null,
+            createSlotTooltipElement(tip),
+          ],
+        });
+      }),
+      ...pause.passives.map((slot) => {
+        const def = catalog.passives[slot.passiveId];
+        const tip = buildPassiveTooltipData(slot, pause, catalog);
+        return el('div', {
+          className: 'hud-slot filled',
+          attrs: {
+            tabindex: 0,
+            title: formatTooltipPlainText(tip),
+            'aria-label': `${def.name} ${tip.badgeText}`,
+          },
+          children: [
+            imgIcon(iconUrl(slot.passiveId), def.name),
+            createSlotTooltipElement(tip),
+          ],
+        });
+      }),
+      ...pause.arcanas.map((aId) => {
+        const def = catalog.arcanas[aId];
+        const tip = buildArcanaTooltipData(aId, catalog);
+        return el('div', {
+          className: 'hud-slot filled',
+          attrs: {
+            tabindex: 0,
+            title: formatTooltipPlainText(tip),
+            'aria-label': `${def.roman} ${def.name}`,
+          },
+          children: [
+            imgIcon(iconUrl(aId), def.name),
+            createSlotTooltipElement(tip),
+          ],
+        });
+      }),
+    ],
+  });
+
   const statsSection = el('section', {
     className: 'pause-section',
     children: [
-      el('h3', { className: 'pause-section-title', text: '当前角色实时属性' }),
+      el('h3', { className: 'pause-section-title', text: '当前装备与实时属性' }),
+      loadoutStrip,
       el('div', {
         className: 'stat-grid',
         children: formatStatDisplayList(pause.stats).map((s) =>
@@ -293,6 +431,10 @@ export function renderPauseModal(deps: PauseModalDeps): PauseModalHandle {
           el('div', { className: 'slider-label-row', children: ['战斗音效 (SFX)', sfxValLabel] }),
           sfxInput,
         ],
+      }),
+      el('div', {
+        className: 'switch-row',
+        children: ['战场实时小雷达', minimapToggleBtn],
       }),
     ],
   });

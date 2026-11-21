@@ -167,6 +167,23 @@ export function renderSettingsModal(deps: SettingsModalDeps): HTMLElement {
             }),
           ],
         }),
+        el('div', {
+          className: 'switch-row',
+          children: [
+            '战场实时小雷达',
+            el('button', {
+              className: `gothic-btn ${s.showMinimap ? 'gothic-btn-gold' : ''}`,
+              text: s.showMinimap ? '开启' : '关闭',
+              dataset: { testid: 'btn-settings-minimap' },
+              onClick: () => {
+                onCue({ type: 'ui_click' });
+                saveStore.updateSettings({ showMinimap: !s.showMinimap });
+                deps.onSettingsChanged();
+                renderContent();
+              },
+            }),
+          ],
+        }),
       ],
     });
 
